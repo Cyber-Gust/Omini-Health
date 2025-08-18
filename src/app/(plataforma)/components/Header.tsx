@@ -3,34 +3,43 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { LogOut, BotMessageSquare, Menu, Lightbulb, X } from 'lucide-react';
+import { LogOut, Menu, Lightbulb, X } from 'lucide-react';
 
-type HeaderProps = {
+// Define o tipo para os dados do perfil que o Header recebe
+type Profile = {
+  id: string; // Adicionado o ID para a lógica do pop-up
+  full_name: string | null;
+  avatar_url: string | null;
+} | null;
+
+interface HeaderProps {
   toggleSidebar: () => void;
-  userId: string; // <-- receba o id do usuário logado
-};
+  profile: Profile;
+}
 
-export default function Header({ toggleSidebar, userId }: HeaderProps) {
+export default function Header({ toggleSidebar, profile }: HeaderProps) {
   const [showTipsPopup, setShowTipsPopup] = useState(false);
 
+  // Lógica do pop-up atualizada para usar o ID do utilizador
   useEffect(() => {
-    if (!userId) return;
+    if (!profile?.id) return;
 
-    const dismissed = localStorage.getItem(`orquestra_tips_dismissed_${userId}`);
+    const dismissed = localStorage.getItem(`orquestra_tips_dismissed_${profile.id}`);
     if (!dismissed) {
       setShowTipsPopup(true);
     }
-  }, [userId]);
+  }, [profile]);
 
   const handleClosePopup = () => {
     setShowTipsPopup(false);
   };
 
-  const handleDisableTips = () => {
-    localStorage.setItem(`orquestra_tips_dismissed_${userId}`, 'true');
+  const handlePermanentlyDismiss = () => {
+    if (profile?.id) {
+      localStorage.setItem(`orquestra_tips_dismissed_${profile.id}`, 'true');
+    }
     setShowTipsPopup(false);
   };
-
   return (
     <header
       className="fixed top-0 left-0 right-0 z-[9999] flex h-16 items-center justify-between bg-light text-white shadow-md px-4 sm:px-6 lg:px-8"
@@ -93,7 +102,7 @@ export default function Header({ toggleSidebar, userId }: HeaderProps) {
               </p>
 
               <button
-                onClick={handleDisableTips}
+                onClick={handlePermanentlyDismiss}
                 className="mt-2 w-full rounded-md bg-gray-100 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-200"
               >
                 Não mostrar novamente
