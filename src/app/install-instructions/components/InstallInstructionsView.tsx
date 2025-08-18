@@ -9,10 +9,10 @@ const instructions = {
   iphone: {
     icon: Apple,
     steps: [
-      { text: "Abra o Safari e navegue até a página de login da Orquestra.", image: "https://placehold.co/600x400/e2e8f0/334155?text=Passo+1" },
-      { text: "Toque no ícone de Partilha na barra inferior.", image: "https://placehold.co/600x400/e2e8f0/334155?text=Passo+2" },
-      { text: "Deslize para cima e selecione 'Adicionar ao Ecrã Principal'.", image: "https://placehold.co/600x400/e2e8f0/334155?text=Passo+3" },
-      { text: "Confirme o nome e toque em 'Adicionar'. O ícone da Orquestra aparecerá no seu ecrã.", image: "https://placehold.co/600x400/e2e8f0/334155?text=Passo+4" },
+      { text: "Abra o Safari e navegue até a página de login da Orquestra.", image: "/print_1_apple.jpeg" },
+      { text: "Toque no ícone de Partilha na barra inferior.", image: "/print_2_apple.jpeg" },
+      { text: "Deslize para cima e selecione 'Adicionar ao Ecrã Principal'.", image: "/print_3_apple.jpeg" },
+      { text: "Confirme o nome e toque em 'Adicionar'. O ícone da Orquestra aparecerá no seu ecrã.", image: "/print_4_apple.jpeg" },
     ]
   },
   android: {
