@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react'; // Importar os hooks
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { Auth } from '@supabase/auth-ui-react';
 import { ThemeSupa } from '@supabase/auth-ui-shared';
@@ -8,6 +9,13 @@ import { UserPlus } from 'lucide-react';
 
 export default function SignupPage() {
   const supabase = createClientComponentClient();
+  const [redirectUrl, setRedirectUrl] = useState('');
+
+  // CORREÇÃO: Obtém o URL de redirecionamento apenas no lado do cliente (navegador)
+  useEffect(() => {
+    // Este código só corre no navegador, onde 'window.location' existe
+    setRedirectUrl(`${window.location.origin}/auth/callback`);
+  }, []);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4">
@@ -21,25 +29,28 @@ export default function SignupPage() {
         </div>
 
         <div className="bg-slate-800/50 rounded-2xl p-8 shadow-2xl backdrop-blur-lg border border-slate-700">
-            <Auth
-                supabaseClient={supabase}
-                appearance={{ 
-                    theme: ThemeSupa,
-                     variables: {
-                        default: {
-                            colors: {
-                                brand: '#8b5cf6',
-                                brandAccent: '#7c3aed',
+            {/* Garante que o componente só renderiza quando o URL está pronto */}
+            {redirectUrl && (
+                <Auth
+                    supabaseClient={supabase}
+                    appearance={{ 
+                        theme: ThemeSupa,
+                         variables: {
+                            default: {
+                                colors: {
+                                    brand: '#8b5cf6',
+                                    brandAccent: '#7c3aed',
+                                }
                             }
                         }
-                    }
-                }}
-                theme="dark"
-                providers={[]}
-                view="sign_up"
-                redirectTo={`${location.origin}/auth/callback`}
-                showLinks={false}
-            />
+                    }}
+                    theme="dark"
+                    providers={[]}
+                    view="sign_up"
+                    redirectTo={redirectUrl} // Usa o URL do estado
+                    showLinks={false}
+                />
+            )}
         </div>
         <p className="text-center text-sm text-slate-400 mt-6">
             Já tem uma conta?{' '}
