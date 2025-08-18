@@ -36,7 +36,7 @@ export default function AppDownloadBanner() {
             href="/install-instructions" // Esta será a página externa com as instruções
             target="_blank" 
             rel="noopener noreferrer"
-            className="mt-24 mr-2 md:mt-4 md:mr-9 inline-flex items-center justify-center rounded-md bg-white px-5 py-3 text-base font-semibold text-brand-dark shadow-lg hover:bg-gray-100 transition-transform hover:scale-105"
+            className="mt-24 mr- md:mt-4 md:mr-9 inline-flex items-center justify-center rounded-md bg-white px-5 py-3 text-base font-semibold text-brand-dark shadow-lg hover:bg-gray-100 transition-transform hover:scale-105"
           >
             <ArrowDownToLine className="mr-2 h-5 w-5" />
             <span>Baixe o nosso App</span>

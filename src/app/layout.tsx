@@ -6,16 +6,21 @@ import { Toaster } from 'sonner';
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
+  // Adiciona metadados específicos para a PWA
+  manifest: "/manifest.json",
+  
   title: {
     template: '%s | Orquestra',
-    default: 'Orquestra - A IA para a sua consulta médica',
+    default: 'Orquestra',
   },
   description: "Orquestra é uma plataforma inteligente que transcreve, analisa e otimiza as suas consultas médicas, devolvendo o seu tempo para o que realmente importa: o paciente.",
   keywords: ['prontuário eletrônico', 'IA para médicos', 'transcrição médica', 'software médico', 'Orquestra'],
-  // NOVO: Adiciona os ícones de forma explícita para garantir a compatibilidade
+  
+  // Define os ícones para todas as plataformas
   icons: {
-    icon: '/favicon.ico', // O ícone principal
-    apple: '/apple-icon.png', // O ícone para dispositivos Apple
+    icon: '/favicon.ico', // Ícone para a aba do navegador
+    shortcut: '/icon-192x192.png',
+    apple: '/apple-icon.png', // Ícone para dispositivos Apple
   },
 };
 
