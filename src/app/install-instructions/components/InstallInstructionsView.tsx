@@ -11,8 +11,8 @@ const instructions = {
     steps: [
       { text: "Abra o Safari e navegue até a toque no ícone de Partilha na barra inferior.", image: "/print_1_apple.jpeg" },
       { text: "Deslize para cima e selecione 'Adicionar ao Ecrã Principal'.", image: "/print_2_apple.jpeg" },
-      { text: "O ícone da Orquestra aparecerá no seu ecrã.", image: "/print_3_apple.jpeg" },
-      { text: "Confirme o nome e toque em 'Adicionar'.", image: "/print_4_apple.jpeg" },
+      { text: "Confirme o nome e toque em 'Adicionar'.", image: "/print_3_apple.jpeg" },
+      { text: "O ícone da Orquestra aparecerá no seu ecrã.", image: "/print_4_apple.jpeg" },
     ]
   },
   android: {
