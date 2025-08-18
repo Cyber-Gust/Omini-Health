@@ -4,8 +4,8 @@
     "description": "A IA para a sua consulta médica.",
     "start_url": "/",
     "display": "standalone",
-    "background_color": "#7BC3D4",
-    "theme_color": "#7BC3D4",
+    "background_color": "#88cadb",
+    "theme_color": "#88cadb",
     "icons": [
         {
             "src": "/icon-192x192.png",
