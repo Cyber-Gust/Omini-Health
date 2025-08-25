@@ -13,7 +13,7 @@ interface ConsultationsChartProps {
 export default function ConsultationsChart({ data }: ConsultationsChartProps) {
   return (
     // CORREÇÃO: Adicionada uma altura mínima para garantir a visibilidade em ecrãs pequenos (mobile)
-    <div className="bg-white p-6 rounded-lg shadow-sm border border-border h-[400px] lg:h-full flex flex-col outline-none">
+    <div className="bg-white p-6 rounded-lg shadow-sm border border-border h-[400px] flex flex-col outline-none">
       <div className="flex items-center gap-3 mb-4">
         <TrendingUp className="h-6 w-6 text-light" />
         <h2 className="text-xl font-semibold">Consultas na Última Semana</h2>

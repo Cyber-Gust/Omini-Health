@@ -4,7 +4,6 @@ import { Clock, X } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
-// Tipo para um único agendamento
 type Appointment = {
   id: string;
   appointment_time: string;
@@ -20,9 +19,10 @@ interface AppointmentDetailsModalProps {
   onClose: () => void;
   appointments: Appointment[];
   selectedDate: Date | null;
+  onAppointmentClick: (payload: { patient: Appointment['patients']; appointmentId: string }) => void;
 }
 
-export default function AppointmentDetailsModal({ isOpen, onClose, appointments, selectedDate }: AppointmentDetailsModalProps) {
+export default function AppointmentDetailsModal({ isOpen, onClose, appointments, selectedDate, onAppointmentClick }: AppointmentDetailsModalProps) {
   if (!isOpen || !selectedDate) return null;
 
   return (
@@ -40,14 +40,19 @@ export default function AppointmentDetailsModal({ isOpen, onClose, appointments,
           {appointments.length > 0 ? (
             <ul className="space-y-3">
               {appointments.map(appt => (
-                <li key={appt.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-md">
-                  <Clock className="h-5 w-5 text-light shrink-0 mt-1" />
-                  <div>
-                    <p className="font-medium text-foreground">
-                      {new Date(appt.appointment_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} - {appt.patients?.full_name}
-                    </p>
-                    {appt.description && <p className="text-sm text-muted">{appt.description}</p>}
-                  </div>
+                <li key={appt.id}>
+                  <button
+                    onClick={() => onAppointmentClick({ patient: appt.patients, appointmentId: appt.id })}
+                    className="w-full flex items-start gap-3 p-3 bg-gray-50 rounded-md text-left hover:bg-gray-100"
+                  >
+                    <Clock className="h-5 w-5 text-light shrink-0 mt-1" />
+                    <div>
+                      <p className="font-medium text-foreground">
+                        {new Date(appt.appointment_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} - {appt.patients?.full_name}
+                      </p>
+                      {appt.description && <p className="text-sm text-muted">{appt.description}</p>}
+                    </div>
+                  </button>
                 </li>
               ))}
             </ul>

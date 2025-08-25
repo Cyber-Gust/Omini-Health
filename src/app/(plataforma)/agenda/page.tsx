@@ -1,81 +1,69 @@
-import React from 'react'; // Adicionado para garantir a interpretação correta do JSX
-import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
-import type { Metadata } from 'next';
+'use client';
+
+import { useState, useEffect } from 'react';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import AgendaCalendar from './components/AgendaCalendar';
-import { AlertTriangle } from 'lucide-react';
+import NewConsultationModal from '../consultas/components/NewConsultationModal';
+import { Loader2 } from 'lucide-react';
 
-export const metadata: Metadata = {
-  title: 'Agenda',
-};
+type Patient = { id: string; full_name: string; birth_date?: string | null };
 
-// Define um tipo para os nossos dados de agendamento para um código mais seguro
-type AppointmentWithPatient = {
-  id: string;
-  appointment_time: string;
-  description: string | null;
-  patients: {
-    id: string;
-    full_name: string;
-  } | null;
-};
+export default function AgendaPage() {
+  const [appointments, setAppointments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-export default async function AgendaPage() {
-  const supabase = createServerComponentClient({ cookies });
-  
-  let appointments: AppointmentWithPatient[] = [];
-  let fetchError: string | null = null;
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [preselectedPatient, setPreselectedPatient] = useState<Patient | null>(null);
+  const [appointmentToConsume, setAppointmentToConsume] = useState<string | null>(null);
 
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) redirect('/login');
+  const supabase = createClientComponentClient();
 
-  try {
-    // Busca todos os agendamentos do utilizador atual
-    const { data, error } = await supabase
-      .from('appointments')
-      .select(`
-        id,
-        appointment_time,
-        description,
-        patients ( id, full_name )
-      `)
-      .eq('user_id', session.user.id)
-      .order('appointment_time', { ascending: true });
+  useEffect(() => {
+    const getAppointments = async () => {
+      setLoading(true);
+      const { data } = await supabase
+        .from('appointments')
+        .select(`id, appointment_time, description, patients ( id, full_name, birth_date )`)
+        .order('appointment_time', { ascending: true });
+      setAppointments(data || []);
+      setLoading(false);
+    };
+    getAppointments();
+  }, [supabase]);
 
-    if (error) throw error;
-    
-    // CORREÇÃO: Implementada a sua sugestão para um tratamento de dados mais robusto
-    if (data) {
-      appointments = data.map((appointment: any) => ({
-        ...appointment,
-        patients: Array.isArray(appointment.patients)
-          ? appointment.patients[0] || null
-          : appointment.patients || null,
-      }));
-    }
+  const openModalForAppointment = (payload: { patient: Patient | null; appointmentId: string }) => {
+    if (!payload.patient) return;
+    setPreselectedPatient(payload.patient);
+    setAppointmentToConsume(payload.appointmentId);
+    setIsModalOpen(true);
+  };
 
-  } catch (error: any) {
-    console.error("Erro ao buscar agendamentos:", error);
-    fetchError = "Não foi possível carregar os dados da agenda. Por favor, tente novamente mais tarde.";
-  }
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setPreselectedPatient(null);
+    setAppointmentToConsume(null);
+  };
 
   return (
-    <div className="mt-16 space-y-8">
-      {fetchError ? (
-        <div className="bg-red-50 border-l-4 border-red-400 p-4 rounded-md">
-            <div className="flex">
-                <div className="flex-shrink-0">
-                    <AlertTriangle className="h-5 w-5 text-red-400" aria-hidden="true" />
-                </div>
-                <div className="ml-3">
-                    <p className="text-sm text-red-700">{fetchError}</p>
-                </div>
-            </div>
+    <div className="space-y-8 mt-16">
+      {loading ? (
+        <div className="flex justify-center items-center p-12">
+          <Loader2 className="h-8 w-8 animate-spin text-light" />
         </div>
       ) : (
-        <AgendaCalendar initialAppointments={appointments} />
+        <AgendaCalendar
+          initialAppointments={appointments}
+          onAppointmentClick={openModalForAppointment}
+        />
       )}
+
+      <NewConsultationModal
+        isOpen={isModalOpen}
+        onClose={handleCloseModal}
+        preselectedPatient={preselectedPatient ?? undefined}
+        appointmentIdToConsume={appointmentToConsume ?? undefined}
+        onConsumedAppointment={(id) => setAppointments(prev => prev.filter((a: any) => a.id !== id))}
+      />
     </div>
   );
 }

@@ -1,36 +1,36 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, subMonths, isSameDay, isToday } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight, Plus, Clock } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Clock, PlayCircle } from 'lucide-react';
 import AppointmentModal from './AppointmentModal';
 import AppointmentDetailsModal from './AppointmentDetailsModal';
 
-// Tipos para os dados do agendamento
+type Patient = { id: string; full_name: string; birth_date?: string | null };
 type Appointment = {
   id: string;
   appointment_time: string;
   description: string | null;
-  patients: {
-    id: string;
-    full_name: string;
-  } | null;
+  patients: Patient | null;
 };
 
 interface AgendaCalendarProps {
   initialAppointments: Appointment[];
+  onAppointmentClick: (payload: { patient: Patient | null; appointmentId: string }) => void;
 }
 
-export default function AgendaCalendar({ initialAppointments }: AgendaCalendarProps) {
+export default function AgendaCalendar({ initialAppointments, onAppointmentClick }: AgendaCalendarProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [appointments, setAppointments] = useState(initialAppointments);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  
-  // Estados para o modal de detalhes do dia clicado
+
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [selectedDayAppointments, setSelectedDayAppointments] = useState<Appointment[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+
+  // 🔄 importante: sincroniza quando o pai muda a lista
+  useEffect(() => { setAppointments(initialAppointments); }, [initialAppointments]);
 
   const firstDayOfMonth = startOfMonth(currentDate);
   const lastDayOfMonth = endOfMonth(currentDate);
@@ -45,7 +45,6 @@ export default function AgendaCalendar({ initialAppointments }: AgendaCalendarPr
     setAppointments(prev => [...prev, newAppointment].sort((a, b) => new Date(a.appointment_time).getTime() - new Date(b.appointment_time).getTime()));
   };
 
-  // Nova função para lidar com o clique no dia
   const handleDayClick = (day: Date, dayAppointments: Appointment[]) => {
     if (dayAppointments.length > 0) {
       setSelectedDate(day);
@@ -54,7 +53,6 @@ export default function AgendaCalendar({ initialAppointments }: AgendaCalendarPr
     }
   };
 
-  // Filtra os agendamentos apenas para o dia de HOJE
   const todayAppointments = useMemo(() => {
     return appointments
       .filter(appt => isToday(new Date(appt.appointment_time)))
@@ -63,8 +61,7 @@ export default function AgendaCalendar({ initialAppointments }: AgendaCalendarPr
 
   return (
     <>
-      <div className="bg-white pb-12 pl-2 pr-2 rounded-lg shadow-sm border border-border">
-        {/* Cabeçalho do Calendário */}
+      <div className="bg-white pb-6 px-2 sm:px-4 rounded-lg shadow-sm border border-border">
         <div className="p-4 sm:p-6 flex items-center justify-between">
           <h2 className="text-xl font-semibold capitalize">
             {format(currentDate, 'MMMM yyyy', { locale: ptBR })}
@@ -79,12 +76,11 @@ export default function AgendaCalendar({ initialAppointments }: AgendaCalendarPr
           </div>
         </div>
 
-        {/* Grelha do Calendário Responsiva */}
         <div className="grid grid-cols-7 gap-px border-t border-l border-border bg-border">
           {['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((day, index) => (
             <div key={index} className="text-center text-xs sm:text-sm font-medium py-2 bg-gray-50">{day}</div>
           ))}
-          
+
           {emptyDays.map((_, index) => <div key={`empty-${index}`} className="bg-gray-50" />)}
 
           {daysInMonth.map(day => {
@@ -92,15 +88,14 @@ export default function AgendaCalendar({ initialAppointments }: AgendaCalendarPr
             const hasAppointments = dayAppointments.length > 0;
 
             return (
-              <div 
-                key={day.toISOString()} 
+              <div
+                key={day.toISOString()}
                 onClick={() => handleDayClick(day, dayAppointments)}
                 className={`relative bg-white p-1 sm:p-2 transition-colors aspect-square flex flex-col items-center justify-start ${hasAppointments ? 'cursor-pointer hover:bg-gray-100' : ''}`}
               >
                 <span className={`text-sm ${isToday(day) ? 'font-bold text-white bg-light rounded-full h-6 w-6 flex items-center justify-center' : ''}`}>
                   {format(day, 'd')}
                 </span>
-                
                 {hasAppointments && (
                   <div className="absolute bottom-1 sm:bottom-2 left-1/2 -translate-x-1/2 h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-light" />
                 )}
@@ -110,41 +105,47 @@ export default function AgendaCalendar({ initialAppointments }: AgendaCalendarPr
         </div>
       </div>
 
-      {/* NOVA SECÇÃO: Agendamentos de Hoje */}
       <div className="mt-8 bg-white rounded-lg shadow-sm border border-border p-4 sm:p-6">
-          <h3 className="font-semibold">Agendamentos para Hoje</h3>
-          <div className="mt-4 max-h-48 overflow-y-auto pr-2">
-              {todayAppointments.length > 0 ? (
-                  <ul className="space-y-3">
-                      {todayAppointments.map(appt => (
-                          <li key={appt.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-md">
-                              <Clock className="h-5 w-5 text-light shrink-0 mt-1" />
-                              <div>
-                                  <p className="font-medium text-foreground">{new Date(appt.appointment_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} - {appt.patients?.full_name}</p>
-                                  {appt.description && <p className="text-sm text-muted">{appt.description}</p>}
-                              </div>
-                          </li>
-                      ))}
-                  </ul>
-              ) : (
-                  <p className="text-sm text-muted">Nenhum agendamento para hoje.</p>
-              )}
-          </div>
+        <h3 className="font-semibold">Agendamentos para Hoje</h3>
+        <div className="mt-4 max-h-48 overflow-y-auto pr-2">
+          {todayAppointments.length > 0 ? (
+            <ul className="space-y-3">
+              {todayAppointments.map(appt => (
+                <li key={appt.id}>
+                  <button
+                    onClick={() => onAppointmentClick({ patient: appt.patients, appointmentId: appt.id })}
+                    className="w-full flex items-start gap-3 p-3 bg-gray-50 rounded-md text-left hover:ring-2 hover:ring-light transition-all"
+                  >
+                    <Clock className="h-5 w-5 text-light shrink-0 mt-1" />
+                    <div>
+                      <p className="font-medium text-foreground">
+                        {new Date(appt.appointment_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} - {appt.patients?.full_name}
+                      </p>
+                      {appt.description && <p className="text-sm text-muted">{appt.description}</p>}
+                    </div>
+                    <PlayCircle className="h-5 w-5 text-muted ml-auto shrink-0" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-sm text-muted">Nenhum agendamento para hoje.</p>
+          )}
+        </div>
       </div>
-      
-      {/* Modal de Criação de Agendamento */}
-      <AppointmentModal 
-        isOpen={isCreateModalOpen} 
-        onClose={() => setIsCreateModalOpen(false)} 
+
+      <AppointmentModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
         onAppointmentCreated={handleAppointmentCreated}
       />
-      
-      {/* Modal de Detalhes do dia clicado */}
+
       <AppointmentDetailsModal
         isOpen={isDetailsModalOpen}
         onClose={() => setIsDetailsModalOpen(false)}
         appointments={selectedDayAppointments}
         selectedDate={selectedDate}
+        onAppointmentClick={onAppointmentClick}
       />
     </>
   );

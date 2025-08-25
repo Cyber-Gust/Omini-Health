@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { LogOut, Menu, Lightbulb, X } from 'lucide-react';
+import { LogOut, Menu, Lightbulb, X, Settings } from 'lucide-react';
 
 // Define o tipo para os dados do perfil que o Header recebe
 type Profile = {
@@ -40,10 +40,9 @@ export default function Header({ toggleSidebar, profile }: HeaderProps) {
     }
     setShowTipsPopup(false);
   };
+
   return (
-    <header
-      className="fixed top-0 left-0 right-0 z-[9999] flex h-16 items-center justify-between bg-light text-white shadow-md px-4 sm:px-6 lg:px-8"
-    >
+    <header className="fixed top-0 left-0 right-0 z-[9999] flex h-16 items-center justify-between bg-light text-white shadow-md px-4 sm:px-6 lg:px-8">
       <div className="flex items-center">
         <button
           onClick={toggleSidebar}
@@ -56,19 +55,26 @@ export default function Header({ toggleSidebar, profile }: HeaderProps) {
 
         <div className="flex items-center">
           <Image
-            src="/logo-orquestra_B.png" // Substitua pelo nome do seu ficheiro
+            src="/logo-orquestra_B.png"
             alt="Logótipo da Orquestra"
-            width={1766}  // Coloque a largura real da sua imagem
-            height={579} // Coloque a altura real da sua imagem
-            className="h-12 w-auto" // Ajusta a altura e a largura automaticamente
-            priority // Ajuda a carregar o logótipo mais rápido
-          />
+            width={1766}
+            height={579}
+            className="h-12 w-auto"
+            priority
+          />    
         </div>
       </div>
 
       <div className="flex items-center gap-x-2 sm:gap-x-4">
         {/* Ícone e Pop-up da Central de Dicas */}
         <div className="relative">
+          <Link
+            href="/configuracoes"
+            aria-label="Abrir configurações"
+            className="ml-2 inline-flex md:hidden h-9 w-9 items-center justify-center rounded-full transition-colors hover:bg-brand-dark/50 focus:outline-none focus:ring-2 focus:ring-white/50"
+          >
+            <Settings className="h-5 w-5" />
+          </Link>
           <Link
             href="/dicas"
             onClick={handleClosePopup}

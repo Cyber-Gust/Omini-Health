@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const { transcript, patientName, physicalExam } = await request.json();
+    const { transcript, patientName, physicalExam, vitals, patientHistory, labResults } = await request.json();
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('Chave da API do Gemini não configurada.');
 
@@ -10,14 +10,15 @@ export async function POST(request: Request) {
 
     const prompt = `
       Você é um assistente médico especialista. Com base nos dados da consulta para o paciente "${patientName}", gere APENAS o conteúdo de um Pedido de Exame.
-      - Analise a anamnese e o exame físico para sugerir os exames mais relevantes.
+      - Analise a anamnese, o exame físico e os resultados de exames anteriores para sugerir os exames mais relevantes.
       - Formule uma Hipótese Diagnóstica (HD) concisa que justifique os exames.
-      - Não inclua cabeçalhos, rodapés, nomes de médicos ou datas.
-      - NÃO utilize axteriscos ou símbolos especiais. Use apenas texto simples. e para titulos utilize todas as letras maiusculas.
+      - Não inclua cabeçalhos, rodapés ou nomes de médicos.
 
       DADOS DA CONSULTA:
       ---
-      ANAMNESE: ${transcript || 'Não fornecida.'}
+      HISTÓRICO DO PACIENTE: ${patientHistory || 'Não fornecido.'}
+      RESULTADOS DE EXAMES ANTERIORES: ${labResults || 'Nenhum'}
+      TRANSCRIÇÃO (ANAMNESE): ${transcript || 'Não fornecida.'}
       EXAME FÍSICO: ${physicalExam || 'Não fornecido.'}
       ---
 

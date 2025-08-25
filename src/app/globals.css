@@ -1,3 +1,15 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Evita zoom do Safari ao focar inputs com fonte < 16px */
+input, select, textarea {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* (Opcional) previne scroll horizontal acidental */
+html, body {
+  width: 100%;
+  overflow-x: hidden;
+}

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const { transcript, patientName, physicalExam } = await request.json();
+    const { transcript, patientName, physicalExam, vitals, patientHistory, labResults } = await request.json();
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('Chave da API do Gemini não configurada.');
 
@@ -10,14 +10,16 @@ export async function POST(request: Request) {
 
     const prompt = `
       Você é um assistente médico especialista. Com base nos dados da consulta para o paciente "${patientName}", gere APENAS o conteúdo de uma receita médica.
+      
+      **AVISO DE SEGURANÇA CRÍTICO:** Antes de sugerir qualquer medicação, considere o seguinte histórico do paciente para evitar interações medicamentosas e reações alérgicas:
+      ${patientHistory}
+
       - A receita deve ser clara e seguir o formato padrão (nome do medicamento, dosagem, frequência, duração).
-      - Se a consulta não indicar claramente uma medicação, sugira uma medicação comum para os sintomas apresentados.
-      - Não inclua cabeçalhos, rodapés, nomes de médicos ou datas.
-      - NÃO utilize axteriscos ou símbolos especiais. Use apenas texto simples. e para titulos utilize todas as letras maiusculas.
+      - Não inclua cabeçalhos, rodapés ou nomes de médicos.
 
       DADOS DA CONSULTA:
       ---
-      ANAMNESE: ${transcript || 'Não fornecida.'}
+      TRANSCRIÇÃO (ANAMNESE): ${transcript || 'Não fornecida.'}
       EXAME FÍSICO: ${physicalExam || 'Não fornecido.'}
       ---
 

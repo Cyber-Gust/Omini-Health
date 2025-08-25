@@ -13,6 +13,8 @@ type Appointment = {
     id: string;
     full_name: string;
   } | null;
+  // Novo: nome quando não há paciente cadastrado
+  patient_name?: string | null;
 };
 
 interface DayDetailsModalProps {
@@ -20,9 +22,11 @@ interface DayDetailsModalProps {
   onClose: () => void;
   day: Date | null;
   appointments: Appointment[];
+  // Novo: clique no agendamento dentro deste modal (se você usar este componente em outra página)
+  onAppointmentClick?: (payload: { patient?: { id: string; full_name: string }; name?: string }) => void;
 }
 
-export default function DayDetailsModal({ isOpen, onClose, day, appointments }: DayDetailsModalProps) {
+export default function DayDetailsModal({ isOpen, onClose, day, appointments, onAppointmentClick }: DayDetailsModalProps) {
   if (!isOpen || !day) return null;
 
   return (
@@ -40,17 +44,48 @@ export default function DayDetailsModal({ isOpen, onClose, day, appointments }: 
         <div className="max-h-80 overflow-y-auto pr-2">
           {appointments.length > 0 ? (
             <ul className="space-y-3">
-              {appointments.map(appt => (
-                <li key={appt.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-md">
-                  <Clock className="h-5 w-5 text-light shrink-0 mt-1" />
-                  <div>
-                    <p className="font-semibold text-foreground">
-                      {new Date(appt.appointment_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} - {appt.patients?.full_name}
-                    </p>
-                    {appt.description && <p className="text-sm text-muted">{appt.description}</p>}
-                  </div>
-                </li>
-              ))}
+              {appointments.map(appt => {
+                const displayName = appt.patients?.full_name || appt.patient_name || 'Paciente';
+                const clickable = !!onAppointmentClick;
+                const content = (
+                  <>
+                    <Clock className="h-5 w-5 text-light shrink-0 mt-1" />
+                    <div>
+                      <p className="font-semibold text-foreground">
+                        {new Date(appt.appointment_time).toLocaleTimeString('pt-BR', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}{' '}
+                        - {displayName}
+                      </p>
+                      {appt.description && <p className="text-sm text-muted">{appt.description}</p>}
+                    </div>
+                  </>
+                );
+
+                return (
+                  <li key={appt.id} className="flex items-start gap-3">
+                    {clickable ? (
+                      <button
+                        onClick={() => {
+                          if (appt.patients) {
+                            onAppointmentClick?.({ patient: appt.patients });
+                          } else if (appt.patient_name) {
+                            onAppointmentClick?.({ name: appt.patient_name });
+                          } else {
+                            onAppointmentClick?.({});
+                          }
+                        }}
+                        className="w-full p-3 bg-gray-50 rounded-md text-left hover:ring-2 hover:ring-light transition-all flex items-start gap-3"
+                      >
+                        {content}
+                      </button>
+                    ) : (
+                      <div className="w-full p-3 bg-gray-50 rounded-md flex items-start gap-3">{content}</div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <div className="text-center py-10">

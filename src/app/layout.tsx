@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Toaster } from 'sonner';
@@ -6,22 +6,26 @@ import { Toaster } from 'sonner';
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  // Adiciona metadados específicos para a PWA
   manifest: "/manifest.json",
-  
   title: {
     template: '%s | Orquestra',
     default: 'Orquestra',
   },
   description: "Orquestra é uma plataforma inteligente que transcreve, analisa e otimiza as suas consultas médicas, devolvendo o seu tempo para o que realmente importa: o paciente.",
   keywords: ['prontuário eletrônico', 'IA para médicos', 'transcrição médica', 'software médico', 'Orquestra'],
-  
-  // Define os ícones para todas as plataformas
   icons: {
-    icon: '/favicon.ico', // Ícone para a aba do navegador
+    icon: '/favicon.ico',
     shortcut: '/icon-192x192.png',
-    apple: '/apple-icon.png', // Ícone para dispositivos Apple
+    apple: '/apple-icon.png',
   },
+};
+
+// ✅ Corrige zoom inicial no iOS e usa toda a área com notch
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

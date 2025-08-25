@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const { transcript, patientName, physicalExam } = await request.json();
+    const { transcript, patientName, physicalExam, vitals, patientHistory, labResults } = await request.json();
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('Chave da API do Gemini não configurada.');
 
@@ -11,13 +11,13 @@ export async function POST(request: Request) {
     const prompt = `
       Você é um assistente médico especialista. Com base nos dados da consulta para o paciente "${patientName}", gere APENAS o texto de um atestado médico.
       - O texto deve ser formal e conciso.
-      - Se a consulta sugerir a necessidade de afastamento, inclua o número de dias. Caso contrário, crie um texto para um atestado de comparecimento.
-      - Não inclua cabeçalhos, rodapés, nomes de médicos ou datas. A sua única saída deve ser o texto do atestado.
-      - NÃO utilize axteriscos ou símbolos especiais. Use apenas texto simples. e para titulos utilize todas as letras maiusculas.
+      - Considere o histórico do paciente e a queixa atual para determinar se é um atestado de comparecimento ou de afastamento, e por quantos dias.
+      - Não inclua cabeçalhos, rodapés ou nomes de médicos. Use apenas texto simples e títulos em maiúsculas.
 
       DADOS DA CONSULTA:
       ---
-      ANAMNESE: ${transcript || 'Não fornecida.'}
+      HISTÓRICO DO PACIENTE: ${patientHistory || 'Não fornecido.'}
+      TRANSCRIÇÃO (ANAMNESE): ${transcript || 'Não fornecida.'}
       EXAME FÍSICO: ${physicalExam || 'Não fornecido.'}
       ---
 

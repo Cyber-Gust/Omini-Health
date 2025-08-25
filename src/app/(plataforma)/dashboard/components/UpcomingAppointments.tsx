@@ -1,20 +1,17 @@
+'use client';
+
 import Link from 'next/link';
 import { CalendarClock, CalendarPlus } from 'lucide-react';
 
-// Tipo para os dados do agendamento
-type Appointment = {
-  id: string;
-  appointment_time: string;
-  patients: {
-    full_name: string;
-  } | null;
-};
+type Patient = { id: string; full_name: string; birth_date?: string | null };
+type Appointment = { id: string; appointment_time: string; patients: Patient | null };
 
 interface UpcomingAppointmentsProps {
   appointments: Appointment[];
+  onAppointmentClick: (payload: { patient: Patient | null; appointmentId: string }) => void;
 }
 
-export default function UpcomingAppointments({ appointments }: UpcomingAppointmentsProps) {
+export default function UpcomingAppointments({ appointments, onAppointmentClick }: UpcomingAppointmentsProps) {
   return (
     <div className="bg-white p-6 rounded-lg shadow-sm border border-border h-full flex flex-col">
       <div className="flex items-center justify-between mb-4">
@@ -26,27 +23,26 @@ export default function UpcomingAppointments({ appointments }: UpcomingAppointme
           Ver agenda completa
         </Link>
       </div>
+
       <div className="flex-grow">
         {appointments.length > 0 ? (
-          // CORREÇÃO: A lista vertical foi substituída por uma grelha flexível e com quebra de linha
           <div className="flex flex-wrap gap-4">
             {appointments.map((appt) => (
-              <div key={appt.id} className="flex-grow sm:flex-grow-0 sm:basis-1/3 md:basis-1/4 lg:basis-1/5 p-3 bg-gray-50 rounded-md border border-border flex items-center gap-3">
+              <button
+                key={appt.id}
+                onClick={() => onAppointmentClick({ patient: appt.patients, appointmentId: appt.id })}
+                className="flex-grow sm:flex-grow-0 sm:basis-1/3 md:basis-1/4 lg:basis-1/5 p-3 bg-gray-50 rounded-md border border-border flex items-center gap-3 text-left hover:shadow-md hover:border-light transition-all disabled:opacity-50"
+                disabled={!appt.patients}
+              >
                 <div className="flex flex-col items-center justify-center bg-brand-light/30 text-brand-dark rounded-md p-2 w-14 h-14 shrink-0">
-                  <span className="font-bold text-lg">
-                    {new Date(appt.appointment_time).getDate()}
-                  </span>
-                  <span className="text-xs uppercase">
-                    {new Date(appt.appointment_time).toLocaleString('pt-BR', { month: 'short' })}
-                  </span>
+                  <span className="font-bold text-lg">{new Date(appt.appointment_time).getDate()}</span>
+                  <span className="text-xs uppercase">{new Date(appt.appointment_time).toLocaleString('pt-BR', { month: 'short' })}</span>
                 </div>
                 <div className="overflow-hidden">
                   <p className="font-semibold text-foreground text-sm truncate">{appt.patients?.full_name || 'Paciente'}</p>
-                  <p className="text-sm text-muted">
-                    {new Date(appt.appointment_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                  </p>
+                  <p className="text-sm text-muted">{new Date(appt.appointment_time).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         ) : (
