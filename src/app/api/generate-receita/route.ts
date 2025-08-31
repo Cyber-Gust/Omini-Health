@@ -2,33 +2,43 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const { transcript, patientName, physicalExam, vitals, patientHistory, labResults } = await request.json();
+    const { transcript, physicalExam, patientHistory } = await request.json();
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('Chave da API do Gemini não configurada.');
 
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
     const prompt = `
-      Você é um assistente médico especialista. Com base nos dados da consulta para o paciente "${patientName}", gere APENAS o conteúdo de uma receita médica.
-      
-      **AVISO DE SEGURANÇA CRÍTICO:** Antes de sugerir qualquer medicação, considere o seguinte histórico do paciente para evitar interações medicamentosas e reações alérgicas:
-      ${patientHistory}
+Você é um assistente clínico que gera rascunhos de prescrição em português do Brasil, com foco em segurança e clareza.
 
-      - A receita deve ser clara e seguir o formato padrão (nome do medicamento, dosagem, frequência, duração).
-      - Não inclua cabeçalhos, rodapés ou nomes de médicos.
+TAREFA: Produzir apenas o TEXTO da RECEITA MÉDICA (sem cabeçalhos, rodapés, nomes de médico/paciente/data). NÃO USE Markdown. Cada item em linha separada, formato simples e profissional.
 
-      DADOS DA CONSULTA:
-      ---
-      TRANSCRIÇÃO (ANAMNESE): ${transcript || 'Não fornecida.'}
-      EXAME FÍSICO: ${physicalExam || 'Não fornecido.'}
-      ---
+REGRAS DE SEGURANÇA:
+- Considere alergias, medicações em uso e antecedentes em HISTÓRICO. NÃO inventar alergias ou interações.
+- NÃO crie novas medicações se não houver indicação clara nos dados. Se faltar informação, escreva: "Sem dados suficientes para prescrição segura."
+- Preferir DCB (Denominação Comum Brasileira) e evitar nomes comerciais, salvo se explicitamente mencionados.
+- Especificar via (oral/IM/IV/etc.), dose, frequência, duração e quantidade total estimada.
+- Se identificar possível conflito explícito nos dados (ex.: "alérgico a penicilina" e sugestão de amoxicilina), troque por "ALERTA: possível contraindicação – revisar." (não prescreva o fármaco conflitante).
+- Tom impessoal e técnico.
 
-      CONTEÚDO DA RECEITA GERADA:
-    `;
+FORMATO OBRIGATÓRIO:
+RECEITA
+[Medicamento – forma/concentração] — via — dose — frequência — duração — quantidade total — instruções (se houver)
+[Próximo item, se houver]
+
+Se não houver dados suficientes:
+RECEITA
+Sem dados suficientes para prescrição segura.
+
+DADOS DISPONÍVEIS:
+— HISTÓRICO (alergias, uso de fármacos, comorbidades): ${patientHistory || 'Não fornecido.'}
+— TRANSCRIÇÃO (ANAMNESE): ${transcript || 'Não fornecida.'}
+— EXAME FÍSICO: ${physicalExam || 'Não fornecido.'}
+    `.trim();
 
     const payload = {
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.7 },
+      generationConfig: { temperature: 0.2 },
     };
 
     const apiResponse = await fetch(apiUrl, {
@@ -39,12 +49,11 @@ export async function POST(request: Request) {
 
     if (!apiResponse.ok) throw new Error('Erro na comunicação com a IA.');
     const data = await apiResponse.json();
-    const receita = data.candidates[0]?.content?.parts[0]?.text;
+    const receita = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
 
     if (!receita) throw new Error('A resposta da IA estava vazia.');
 
     return NextResponse.json({ receita });
-
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
