@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+
 export async function POST(request: Request) {
   try {
     const { transcript, patientName, physicalExam, vitals, patientHistory } = await request.json();
