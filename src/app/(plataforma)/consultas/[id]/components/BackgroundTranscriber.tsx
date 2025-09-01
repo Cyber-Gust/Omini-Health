@@ -107,7 +107,7 @@ function VoiceVisualizer({
           }
           ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
           ctx.clearRect(0, 0, cssW, cssH);
-
+// @ts-ignore
           a.getByteFrequencyData(d);
 
           // “respiração” global
