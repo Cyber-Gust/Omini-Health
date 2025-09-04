@@ -16,6 +16,7 @@ TAREFA: Produzir apenas o TEXTO do prontuário (sem cabeçalhos, rodapés, nomes
 REGRAS DE ESTILO:
 - Objetividade, termos técnicos, terceira pessoa, sem gírias.
 - Não inventar dados; quando faltar, escrever "Sem dados disponíveis."
+- NAO CRIE NADA QUE NAO FOI FORNECIDO NOS DADOS E NA TRANSCRICAO.
 - Se houver inconsistências, sinalizar em AVALIAÇÃO: "Inconsistências a revisar: ...".
 - Não prescrever aqui; condutas vão em PLANO apenas se estiverem nos dados.
 

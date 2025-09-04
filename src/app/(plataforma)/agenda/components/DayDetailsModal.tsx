@@ -4,16 +4,12 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { X, Clock, Calendar } from 'lucide-react';
 
-// Tipos para os dados do agendamento
 type Appointment = {
   id: string;
   appointment_time: string;
   description: string | null;
-  patients: {
-    id: string;
-    full_name: string;
-  } | null;
-  // Novo: nome quando não há paciente cadastrado
+  patients: { id: string; full_name: string } | null;
+  /** já existia */
   patient_name?: string | null;
 };
 
@@ -22,11 +18,20 @@ interface DayDetailsModalProps {
   onClose: () => void;
   day: Date | null;
   appointments: Appointment[];
-  // Novo: clique no agendamento dentro deste modal (se você usar este componente em outra página)
-  onAppointmentClick?: (payload: { patient?: { id: string; full_name: string }; name?: string }) => void;
+  onAppointmentClick?: (payload: {
+    patient?: { id: string; full_name: string } | null;
+    name?: string | null;
+    appointmentId: string;
+  }) => void;
 }
 
-export default function DayDetailsModal({ isOpen, onClose, day, appointments, onAppointmentClick }: DayDetailsModalProps) {
+export default function DayDetailsModal({
+  isOpen,
+  onClose,
+  day,
+  appointments,
+  onAppointmentClick,
+}: DayDetailsModalProps) {
   if (!isOpen || !day) return null;
 
   return (
@@ -40,13 +45,12 @@ export default function DayDetailsModal({ isOpen, onClose, day, appointments, on
             <X className="h-5 w-5 text-muted" />
           </button>
         </div>
-        
+
         <div className="max-h-80 overflow-y-auto pr-2">
           {appointments.length > 0 ? (
             <ul className="space-y-3">
-              {appointments.map(appt => {
+              {appointments.map((appt) => {
                 const displayName = appt.patients?.full_name || appt.patient_name || 'Paciente';
-                const clickable = !!onAppointmentClick;
                 const content = (
                   <>
                     <Clock className="h-5 w-5 text-light shrink-0 mt-1" />
@@ -65,17 +69,15 @@ export default function DayDetailsModal({ isOpen, onClose, day, appointments, on
 
                 return (
                   <li key={appt.id} className="flex items-start gap-3">
-                    {clickable ? (
+                    {onAppointmentClick ? (
                       <button
-                        onClick={() => {
-                          if (appt.patients) {
-                            onAppointmentClick?.({ patient: appt.patients });
-                          } else if (appt.patient_name) {
-                            onAppointmentClick?.({ name: appt.patient_name });
-                          } else {
-                            onAppointmentClick?.({});
-                          }
-                        }}
+                        onClick={() =>
+                          onAppointmentClick({
+                            patient: appt.patients,
+                            name: appt.patient_name ?? null,
+                            appointmentId: appt.id,
+                          })
+                        }
                         className="w-full p-3 bg-gray-50 rounded-md text-left hover:ring-2 hover:ring-light transition-all flex items-start gap-3"
                       >
                         {content}

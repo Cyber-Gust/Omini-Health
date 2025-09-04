@@ -15,6 +15,8 @@ export default function AgendaPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [preselectedPatient, setPreselectedPatient] = useState<Patient | null>(null);
   const [appointmentToConsume, setAppointmentToConsume] = useState<string | null>(null);
+  // ✅ novo: nome pré-preenchido quando não há paciente cadastrado
+  const [prefillName, setPrefillName] = useState<string | undefined>(undefined);
 
   const supabase = createClientComponentClient();
 
@@ -23,7 +25,8 @@ export default function AgendaPage() {
       setLoading(true);
       const { data } = await supabase
         .from('appointments')
-        .select(`id, appointment_time, description, patients ( id, full_name, birth_date )`)
+        // ✅ incluir patient_name
+        .select(`id, appointment_time, description, patient_name, patients ( id, full_name, birth_date )`)
         .order('appointment_time', { ascending: true });
       setAppointments(data || []);
       setLoading(false);
@@ -31,9 +34,10 @@ export default function AgendaPage() {
     getAppointments();
   }, [supabase]);
 
-  const openModalForAppointment = (payload: { patient: Patient | null; appointmentId: string }) => {
-    if (!payload.patient) return;
-    setPreselectedPatient(payload.patient);
+  // ✅ agora recebe patientName e funciona para paciente nulo (novo paciente)
+  const openModalForAppointment = (payload: { patient: Patient | null; appointmentId: string; patientName?: string | null }) => {
+    setPreselectedPatient(payload.patient ?? null);
+    setPrefillName(payload.patient ? undefined : (payload.patientName ?? undefined));
     setAppointmentToConsume(payload.appointmentId);
     setIsModalOpen(true);
   };
@@ -42,6 +46,7 @@ export default function AgendaPage() {
     setIsModalOpen(false);
     setPreselectedPatient(null);
     setAppointmentToConsume(null);
+    setPrefillName(undefined); // ✅ limpar
   };
 
   return (
@@ -53,7 +58,7 @@ export default function AgendaPage() {
       ) : (
         <AgendaCalendar
           initialAppointments={appointments}
-          onAppointmentClick={openModalForAppointment}
+          onAppointmentClick={openModalForAppointment} // AgendaCalendar deve repassar {patient, appointmentId, patientName}
         />
       )}
 
@@ -61,6 +66,7 @@ export default function AgendaPage() {
         isOpen={isModalOpen}
         onClose={handleCloseModal}
         preselectedPatient={preselectedPatient ?? undefined}
+        prefillName={prefillName}                      // ✅ passar para o modal
         appointmentIdToConsume={appointmentToConsume ?? undefined}
         onConsumedAppointment={(id) => setAppointments(prev => prev.filter((a: any) => a.id !== id))}
       />

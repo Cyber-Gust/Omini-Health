@@ -17,6 +17,8 @@ export default function DashboardPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [preselectedPatient, setPreselectedPatient] = useState<Patient | null>(null);
   const [appointmentToConsume, setAppointmentToConsume] = useState<string | null>(null);
+  // ✅ novo: nome pré-preenchido quando não há paciente cadastrado
+  const [prefillName, setPrefillName] = useState<string | undefined>(undefined);
 
   const [userName, setUserName] = useState('Médico(a)');
   const [stats, setStats] = useState({ consultasHoje: 0, consultasSemana: 0, novosPacientesMes: 0 });
@@ -52,7 +54,8 @@ export default function DashboardPage() {
 
       const getUpcomingAppointments = supabase
         .from('appointments')
-        .select(`id, appointment_time, patients ( id, full_name, birth_date )`)
+        // ✅ incluir patient_name
+        .select(`id, appointment_time, patient_name, patients ( id, full_name, birth_date )`)
         .gte('appointment_time', new Date().toISOString())
         .order('appointment_time', { ascending: true })
         .limit(5);
@@ -96,9 +99,10 @@ export default function DashboardPage() {
   }, [supabase]);
 
   // Clique num agendamento (dashboard)
-  const handleStartConsultationForAppointment = (payload: { patient: Patient | null; appointmentId: string }) => {
-    if (!payload.patient) return; // por segurança
-    setPreselectedPatient(payload.patient);
+  // ✅ agora recebe patientName e funciona para paciente nulo (novo paciente)
+  const handleStartConsultationForAppointment = (payload: { patient: Patient | null; appointmentId: string; patientName?: string | null }) => {
+    setPreselectedPatient(payload.patient ?? null);
+    setPrefillName(payload.patient ? undefined : (payload.patientName ?? undefined));
     setAppointmentToConsume(payload.appointmentId);
     setIsModalOpen(true);
   };
@@ -107,6 +111,7 @@ export default function DashboardPage() {
     setIsModalOpen(false);
     setPreselectedPatient(null);
     setAppointmentToConsume(null);
+    setPrefillName(undefined); // ✅ limpar
   };
 
   return (
@@ -135,6 +140,7 @@ export default function DashboardPage() {
       </div>
 
       <div>
+        {/* UpcomingAppointments (já atualizado) dispara onAppointmentClick com {patient, appointmentId, patientName} */}
         <UpcomingAppointments appointments={upcomingAppointments} onAppointmentClick={handleStartConsultationForAppointment} />
       </div>
 
@@ -144,6 +150,7 @@ export default function DashboardPage() {
         isOpen={isModalOpen}
         onClose={handleCloseModal}
         preselectedPatient={preselectedPatient ?? undefined}
+        prefillName={prefillName}                    
         appointmentIdToConsume={appointmentToConsume ?? undefined}
         onConsumedAppointment={(id) => setUpcomingAppointments(prev => prev.filter((a: any) => a.id !== id))}
       />
