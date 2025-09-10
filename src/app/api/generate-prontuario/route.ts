@@ -33,7 +33,8 @@ AVALIAÇÃO:
 [Problemas/hipóteses diagnósticas com raciocínio conciso. Se insuficiente: "Sem dados suficientes para hipóteses robustas."]
 
 PLANO:
-[Exames a considerar, acompanhamento, orientações fornecidas. Se não houver dados, "Sem dados disponíveis."]
+[Exames a considerar, acompanhamento, orientações fornecidas. Se não houver a queixa ou transcricao, "Sem dados disponíveis. Caso o paciente
+relate uma queixa ou sintomas elabore o plano de forma profissional e medica mesmo que o medico nao tenha falado."]
 
 DADOS DA CONSULTA (fontes):
 — HISTÓRICO: ${patientHistory || 'Não fornecido.'}
