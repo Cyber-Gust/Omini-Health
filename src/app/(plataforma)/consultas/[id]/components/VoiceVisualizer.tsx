@@ -47,8 +47,7 @@ export default function VoiceVisualizer({
         ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
         ctx.clearRect(0, 0, cssW, cssH);
 
-        a.getByteFrequencyData(d);
-
+        a.getByteFrequencyData(d as unknown as Uint8Array);
         // fundo
         ctx.fillStyle = 'rgba(20, 184, 166, 0.08)';
         ctx.fillRect(0, 0, cssW, cssH);

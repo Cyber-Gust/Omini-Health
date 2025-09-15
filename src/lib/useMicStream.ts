@@ -41,12 +41,15 @@ export function useMicStream(active: boolean): MicState {
           const src = ac.createMediaStreamSource(stream);
           const an = ac.createAnalyser(); an.fftSize = 512;
           src.connect(an);
-          const buf = new Uint8Array(an.frequencyBinCount);
+
+          // 🔧 Tipagem compatível com lib.dom mais estrita (TS 5.5+):
+          const buf = new Uint8Array(an.frequencyBinCount) as unknown as Uint8Array;
 
           const ok = await new Promise<boolean>(resolve => {
             let ticks = 0, positives = 0;
             const id = setInterval(() => {
-              an.getByteTimeDomainData(buf);
+              // 🔧 Cast na chamada:
+              an.getByteTimeDomainData(buf as unknown as Uint8Array);
               let sum = 0;
               for (let i = 0; i < buf.length; i++) {
                 const v = (buf[i] - 128) / 128;
@@ -68,7 +71,9 @@ export function useMicStream(active: boolean): MicState {
           stopRef.current = () => { stream.getTracks().forEach(t => t.stop()); };
           setState({ stream, error: null, ready: true });
           return;
-        } catch { /* tenta próximo */ }
+        } catch {
+          // tenta próximo candidate
+        }
       }
 
       setState({ stream: null, error: 'Falha ao acessar microfone (Android).', ready: false });
