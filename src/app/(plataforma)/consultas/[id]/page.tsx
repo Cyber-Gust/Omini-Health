@@ -248,9 +248,9 @@ export default function ConsultationDetailPage() {
               <BackgroundTranscriber
                 isListening={isListening}
                 onToggleListening={() => setIsListening((v) => !v)}
-                onTranscriptUpdate={handleTranscriptUpdate}
+                onTranscriptUpdate={(item) => setTranscript((prev) => [...prev, item])}
               />
-              <PhysicalExamForm onExamDataChange={handleExamDataChange} />
+              <PhysicalExamForm onExamDataChange={(data) => setPhysicalExamData(data)} />
             </>
           )}
 
