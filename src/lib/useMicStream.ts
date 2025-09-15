@@ -42,14 +42,13 @@ export function useMicStream(active: boolean): MicState {
           const an = ac.createAnalyser(); an.fftSize = 512;
           src.connect(an);
 
-          // 🔧 Tipagem compatível com lib.dom mais estrita (TS 5.5+):
-          const buf = new Uint8Array(an.frequencyBinCount) as unknown as Uint8Array;
+          // Tipagem compatível após o .d.ts
+          const buf: Uint8Array<ArrayBufferLike> = new Uint8Array(an.frequencyBinCount);
 
           const ok = await new Promise<boolean>(resolve => {
             let ticks = 0, positives = 0;
             const id = setInterval(() => {
-              // 🔧 Cast na chamada:
-              an.getByteTimeDomainData(buf as unknown as Uint8Array);
+              an.getByteTimeDomainData(buf);
               let sum = 0;
               for (let i = 0; i < buf.length; i++) {
                 const v = (buf[i] - 128) / 128;

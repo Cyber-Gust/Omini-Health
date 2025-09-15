@@ -17,6 +17,6 @@
     "paths": { "@/*": ["./src/*"] },
     "target": "es2018"            
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "public/asr.worker.js"],
+  "include": ["next-env.d.ts", "src/types/**/*.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "public/asr.worker.js"],
   "exclude": ["node_modules"]
 }
