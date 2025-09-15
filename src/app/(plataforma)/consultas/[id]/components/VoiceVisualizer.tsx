@@ -1,4 +1,4 @@
-// components/VoiceVisualizer.tsx
+// src/app/(plataforma)/consultas/[id]/components/VoiceVisualizer.tsx
 'use client';
 import { useEffect, useRef } from 'react';
 
@@ -9,8 +9,9 @@ export default function VoiceVisualizer({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  // 🔧 ref já no tipo “que o método espera”
+  const dataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
   const rafRef = useRef<number | null>(null);
-  const dataRef = useRef<Uint8Array | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -28,7 +29,9 @@ export default function VoiceVisualizer({
       an.smoothingTimeConstant = 0.85;
       src.connect(an);
       analyserRef.current = an;
-      dataRef.current = new Uint8Array(an.frequencyBinCount);
+
+      // 🔧 aloca já convertido para Uint8Array<ArrayBuffer>
+      dataRef.current = new Uint8Array(an.frequencyBinCount) as unknown as Uint8Array<ArrayBuffer>;
 
       const draw = () => {
         if (cancelled) return;
@@ -47,19 +50,21 @@ export default function VoiceVisualizer({
         ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
         ctx.clearRect(0, 0, cssW, cssH);
 
-        a.getByteFrequencyData(d as unknown as Uint8Array);
+        // 🔧 chamada sem erro
+        a.getByteFrequencyData(d);
+
         // fundo
         ctx.fillStyle = 'rgba(20, 184, 166, 0.08)';
         ctx.fillRect(0, 0, cssW, cssH);
 
         const bars = 16, gap = 3;
         const barW = (cssW - gap * (bars - 1)) / bars;
+        const binsPerBar = Math.max(1, Math.floor((d as Uint8Array).length / bars));
 
         for (let b = 0; b < bars; b++) {
           let acc = 0;
-          const binsPerBar = Math.max(1, Math.floor(d.length / bars));
-          for (let j = 0; j < binsPerBar; j++) acc += d[b * binsPerBar + j];
-          const avg = acc / (binsPerBar * 255); // 0..1
+          for (let j = 0; j < binsPerBar; j++) acc += (d as Uint8Array)[b * binsPerBar + j];
+          const avg = acc / (binsPerBar * 255);
           const strength = Math.pow(avg, 0.6);
           const hRaw = strength * cssH * 2.2;
           const h = Math.max(2, Math.min(hRaw, cssH * 0.98));
@@ -92,6 +97,7 @@ export default function VoiceVisualizer({
     setup();
 
     return () => {
+      cancelled = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
       try { analyserRef.current?.disconnect(); } catch {}
@@ -99,7 +105,6 @@ export default function VoiceVisualizer({
       analyserRef.current = null;
       audioCtxRef.current = null;
       dataRef.current = null;
-      cancelled = true;
     };
   }, [stream]);
 
