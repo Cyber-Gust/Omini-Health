@@ -1,11 +1,13 @@
+// src/app/(plataforma)/consultas/[id]/page.tsx
 'use client';
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useParams, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, FileText, FileSignature, Receipt, CheckCircle, Beaker } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
+
 import BackgroundTranscriber, { type TranscriptItem } from './components/BackgroundTranscriber';
 import PhysicalExamForm from './components/PhysicalExamForm';
 import PatientSummary from './components/PatientSummary';
@@ -43,84 +45,127 @@ export default function ConsultationDetailPage() {
   const supabase = createClientComponentClient();
   const id = params.id as string;
 
+  // Evita setState após unmount
+  const mountedRef = useRef(true);
   useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  // Carregamento inicial com abort/guards
+  useEffect(() => {
+    if (!id) return;
+
+    const ctrl = new AbortController();
     const getInitialData = async () => {
-      setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push('/login'); return; }
+      try {
+        setLoading(true);
 
-      const { data: consultationData, error: consultationError } = await supabase
-        .from('consultas')
-        .select(`*, patient_id`)
-        .eq('id', id)
-        .single();
+        const { data: { user }, error: userErr } = await supabase.auth.getUser();
+        if (userErr) throw userErr;
+        if (!user) {
+          if (mountedRef.current) router.push('/login');
+          return;
+        }
 
-      if (consultationError || !consultationData) {
-        toast.error('Consulta não encontrada.');
-        router.push('/consultas');
-        return;
+        // Consulta atual
+        const { data: consultationData, error: consultationError } = await supabase
+          .from('consultas')
+          .select(`*, patient_id`)
+          .eq('id', id)
+          .single();
+
+        if (consultationError || !consultationData) {
+          toast.error('Consulta não encontrada.');
+          if (mountedRef.current) router.push('/consultas');
+          return;
+        }
+
+        // Paciente
+        const { data: patientData, error: patientErr } = await supabase
+          .from('patients')
+          .select('*')
+          .eq('id', consultationData.patient_id)
+          .single();
+        if (patientErr) throw patientErr;
+
+        // Perfil
+        const { data: profileData, error: profileErr } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+        if (profileErr) throw profileErr;
+
+        // Últimos vitais em consulta concluída
+        const { data: lastConsultation, error: lastErr } = await supabase
+          .from('consultas')
+          .select('vitals_and_anthropometry')
+          .eq('patient_id', consultationData.patient_id)
+          .eq('status', 'concluída')
+          .neq('id', id) // Exclui a consulta atual
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (lastErr) {
+          // Não é crítico — apenas loga
+          console.warn('Falha ao carregar últimos vitais:', lastErr.message);
+        }
+
+        if (!mountedRef.current || ctrl.signal.aborted) return;
+
+        setProfile(profileData ?? null);
+        setPatient(patientData ? { ...patientData, consultation_id: id } : null);
+        setVitals(consultationData.vitals_and_anthropometry || {});
+        setLastVitals(lastConsultation?.vitals_and_anthropometry || null);
+        setLabResults(consultationData.lab_results || []);
+
+        setDocuments({
+          prontuario: consultationData.prontuario_gerado || '',
+          receita: consultationData.receita_gerada || '',
+          atestado: consultationData.atestado_gerado || '',
+          pedidoExame: consultationData.pedido_exame_gerado || '',
+        });
+
+        // guarda a data da consulta (created_at) para salvar junto com a transcrição
+        setConsultationDate(consultationData.created_at ?? new Date().toISOString());
+
+        if (consultationData.status === 'concluída') setIsFinalized(true);
+      } catch (err: any) {
+        console.error(err);
+        toast.error(`Erro ao carregar consulta: ${err?.message || 'desconhecido'}`);
+      } finally {
+        if (mountedRef.current && !ctrl.signal.aborted) setLoading(false);
       }
-
-      const { data: patientData } = await supabase
-        .from('patients')
-        .select('*')
-        .eq('id', consultationData.patient_id)
-        .single();
-
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-
-      const { data: lastConsultation } = await supabase
-        .from('consultas')
-        .select('vitals_and_anthropometry')
-        .eq('patient_id', consultationData.patient_id)
-        .eq('status', 'concluída')
-        .neq('id', id) // Exclui a consulta atual
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      setProfile(profileData);
-      setPatient({ ...patientData, consultation_id: id });
-      setVitals(consultationData.vitals_and_anthropometry || {});
-      setLastVitals(lastConsultation?.vitals_and_anthropometry || null);
-      setLabResults(consultationData.lab_results || []);
-
-      setDocuments({
-        prontuario: consultationData.prontuario_gerado || '',
-        receita: consultationData.receita_gerada || '',
-        atestado: consultationData.atestado_gerado || '',
-        pedidoExame: consultationData.pedido_exame_gerado || '',
-      });
-
-      // guarda a data da consulta (created_at) para salvar junto com a transcrição
-      setConsultationDate(consultationData.created_at ?? new Date().toISOString());
-
-      if (consultationData.status === 'concluída') setIsFinalized(true);
-      setLoading(false);
     };
-    if (id) getInitialData();
+
+    void getInitialData();
+    return () => { ctrl.abort(); };
   }, [id, router, supabase]);
 
-  const handleDataSave = ({ patient: updatedPatient, vitals: updatedVitals }: any) => {
+  // ===== Handlers MEMOIZADOS =====
+  const handleDataSave = useCallback(({ patient: updatedPatient, vitals: updatedVitals }: any) => {
     setPatient(updatedPatient);
     setVitals(updatedVitals);
-  };
+  }, []);
 
   const handleTranscriptUpdate = useCallback((newItem: TranscriptItem) => {
     setTranscript((prev) => [...prev, newItem]);
   }, []);
 
-  const handleExamDataChange = useCallback((data: ExamFindings) => { setPhysicalExamData(data); }, []);
+  const handleExamDataChange = useCallback((data: ExamFindings) => {
+    setPhysicalExamData(data);
+  }, []);
 
-  // Junta dados contextuais para geração e para persistência da transcrição
-  const getBaseGenerationData = () => {
+  // Junta dados contextuais para geração e para persistência da transcrição (memo p/ evitar recomputar)
+  const baseGenerationData = useMemo(() => {
     const fullTranscriptText = transcript.map(t => `[${t.speaker}]: ${t.text}`).join('\n');
-    const examText = Object.entries(physicalExamData).map(([cat, find]) => `${cat}:\n- ${find.join('\n- ')}`).join('\n\n');
-    const vitalsText = Object.entries(vitals).map(([key, value]) => `${key.replace(/_/g, ' ')}: ${String(value)}`).join(' | ');
+    const examText = Object.entries(physicalExamData)
+      .map(([cat, find]) => `${cat}:\n- ${find.join('\n- ')}`)
+      .join('\n\n');
+    const vitalsText = Object.entries(vitals)
+      .map(([key, value]) => `${key.replace(/_/g, ' ')}: ${String(value)}`)
+      .join(' | ');
 
     const patientHistoryText = `
       Doenças Pré-existentes: ${patient?.medical_history?.map((d: any) => `${d.code} - ${d.description}`).join(', ') || 'Nenhuma'}
@@ -131,15 +176,15 @@ export default function ConsultationDetailPage() {
     const labResultsText = labResults.map(res => `${res.name}: ${res.value}`).join('\n');
 
     return { fullTranscriptText, examText, vitalsText, patientHistoryText, labResultsText };
-  };
+  }, [transcript, physicalExamData, vitals, patient, labResults]);
 
-  const handleGenerateDocument = async (docType: keyof DocumentsState) => {
+  const handleGenerateDocument = useCallback(async (docType: keyof DocumentsState) => {
     if (transcript.length === 0 && Object.keys(physicalExamData).length === 0) {
       toast.error('A transcrição e o exame físico estão vazios.');
       return;
     }
     setIsGenerating(docType);
-    const { fullTranscriptText, examText, vitalsText, patientHistoryText, labResultsText } = getBaseGenerationData();
+    const { fullTranscriptText, examText, vitalsText, patientHistoryText, labResultsText } = baseGenerationData;
 
     try {
       const response = await fetch(`/api/generate-${docType}`, {
@@ -167,47 +212,55 @@ export default function ConsultationDetailPage() {
     } finally {
       setIsGenerating(null);
     }
-  };
+  }, [baseGenerationData, id, patient?.full_name, physicalExamData, transcript.length]);
 
-  // --- NOVO: salvar a transcrição bruta em uma tabela (1 linha por consulta) ---
+  // --- salvar a transcrição bruta (1:1 por consulta) ---
   const saveTranscriptToDB = useCallback(async (fullTranscriptText: string) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Não autenticado');
+    if (!id) throw new Error('Consulta inválida');
 
     const payload = {
       user_id: user.id,
       consultation_id: id,
-      patient_id: patient?.id,                                  // id do paciente
-      patient_name: patient?.full_name ?? 'Paciente',           // nome para facilitar auditoria
+      patient_id: patient?.id,
+      patient_name: patient?.full_name ?? 'Paciente',
       consultation_date: consultationDate ?? new Date().toISOString(),
       transcript_text: fullTranscriptText,
     };
 
     const { error } = await supabase
       .from('consultation_transcripts')
-      .upsert(payload, { onConflict: 'consultation_id' });      // garante 1:1 por consulta
+      .upsert(payload, { onConflict: 'consultation_id' });
 
     if (error) throw error;
-  }, [id, patient, consultationDate, supabase]);
+  }, [consultationDate, id, patient, supabase]);
 
-  const handleFinalizeConsultation = async () => {
-    if (!documents.prontuario) { toast.error('Gere o prontuário antes de finalizar.'); return; }
+  const handleFinalizeConsultation = useCallback(async () => {
+    if (!documents.prontuario) {
+      toast.error('Gere o prontuário antes de finalizar.');
+      return;
+    }
     setIsFinalizing(true);
     try {
       // salva transcrição bruta vinculada ao paciente/consulta
-      const { fullTranscriptText } = getBaseGenerationData();
+      const { fullTranscriptText } = baseGenerationData;
       await saveTranscriptToDB(fullTranscriptText);
 
-      // atualiza a consulta como já fazia
-      const { error } = await supabase.from('consultas').update({
-        prontuario_gerado: documents.prontuario,
-        receita_gerada: documents.receita,
-        atestado_gerado: documents.atestado,
-        pedido_exame_gerado: documents.pedidoExame,
-        vitals_and_anthropometry: vitals,
-        lab_results: labResults,
-        status: 'concluída',
-      }).eq('id', id);
+      // atualiza a consulta
+      const { error } = await supabase
+        .from('consultas')
+        .update({
+          prontuario_gerado: documents.prontuario,
+          receita_gerada: documents.receita,
+          atestado_gerado: documents.atestado,
+          pedido_exame_gerado: documents.pedidoExame,
+          vitals_and_anthropometry: vitals,
+          lab_results: labResults,
+          status: 'concluída',
+        })
+        .eq('id', id);
+
       if (error) throw error;
 
       setIsFinalized(true);
@@ -218,19 +271,40 @@ export default function ConsultationDetailPage() {
     } finally {
       setIsFinalizing(false);
     }
-  };
+  }, [baseGenerationData, documents, id, labResults, router, saveTranscriptToDB, supabase, vitals]);
+
+  // Navegar para /consultas também via onClick para contornar overlays
+  const handleGoBack = useCallback(
+    (e?: React.MouseEvent) => {
+      e?.preventDefault?.();
+      router.push('/consultas');
+    },
+    [router]
+  );
 
   if (loading) {
-    return <div className="flex items-center justify-center h-full"><Loader2 className="h-8 w-8 animate-spin text-light" /></div>;
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="h-8 w-8 animate-spin text-light" />
+      </div>
+    );
   }
 
   return (
     <>
-      <div className="mt-16">
-        <Link href="/consultas" className="flex items-center gap-2 text-muted hover:text-foreground mb-6">
-          <ArrowLeft className="h-5 w-5" />
-          Voltar para Consultas
-        </Link>
+      {/* z-index e pointer-events garantem clique mesmo se algum overlay global existir */}
+      <div className="mt-16 relative z-10 pointer-events-auto">
+        <div className="mb-6 flex items-center gap-2">
+          <Link
+            href="/consultas"
+            prefetch={false}
+            className="flex items-center gap-2 text-muted hover:text-foreground"
+            onClick={handleGoBack}
+          >
+            <ArrowLeft className="h-5 w-5" />
+            Voltar para Consultas
+          </Link>
+        </div>
 
         <div className="space-y-8">
           {patient && (
@@ -243,14 +317,25 @@ export default function ConsultationDetailPage() {
 
           {!isFinalized && (
             <>
-              <VitalSignsForm vitals={vitals} setVitals={setVitals} isFinalized={isFinalized} />
-              <LabResultsForm results={labResults} onResultsChange={setLabResults} isFinalized={isFinalized} />
+              <VitalSignsForm
+                vitals={vitals}
+                setVitals={setVitals}
+                isFinalized={isFinalized}
+              />
+              <LabResultsForm
+                results={labResults}
+                onResultsChange={setLabResults}
+                isFinalized={isFinalized}
+              />
+
               <BackgroundTranscriber
                 isListening={isListening}
                 onToggleListening={() => setIsListening((v) => !v)}
-                onTranscriptUpdate={(item) => setTranscript((prev) => [...prev, item])}
+                onTranscriptUpdate={handleTranscriptUpdate}
               />
-              <PhysicalExamForm onExamDataChange={(data) => setPhysicalExamData(data)} />
+
+              {/* Usa callback memoizado para evitar loops no filho */}
+              <PhysicalExamForm onExamDataChange={handleExamDataChange} />
             </>
           )}
 

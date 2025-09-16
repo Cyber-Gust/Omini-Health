@@ -1,7 +1,7 @@
+// next.config.mjs
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // NOVO: Adiciona a permissão para usar imagens do domínio placehold.co
   images: {
     remotePatterns: [
       {
@@ -14,4 +14,14 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+const securityHeaders = [
+  { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+  { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' },
+];
+
+export default {
+  ...nextConfig,
+  async headers() {
+    return [{ source: '/(.*)', headers: securityHeaders }];
+  },
+};
