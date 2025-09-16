@@ -1,134 +1,145 @@
-'use client';
+// src/lib/asr-adapter.ts
+import { AsrEngine } from './engine';
 
-import { toast } from 'sonner';
-import type { AsrEngine } from './engine';
-import { WhisperWebGPUBackend } from './asr/whisper-backend';
+let handler: (text: string) => void = () => {};
+export function setTranscriptHandler(fn: (text: string) => void) { handler = fn; }
 
-type Backend = {
-  start: (opts?: { contextHint?: string; stream?: MediaStream }) => void | Promise<void>;
-  stop: () => void;
-};
+let currentEngine: AsrEngine | null = null;
+let webspeechRec: any = null;
+let whisperWorker: Worker | null = null;
+let mediaStream: MediaStream | null = null;
+let mediaRecorder: MediaRecorder | null = null;
+let chunks: Blob[] = [];
 
-let activeBackend: Backend | null = null;
-let transcriptHandler: ((text: string) => void) | null = null;
-
-/** Filtrozinho para ignorar ruídos curtíssimos (opcional) */
-function isLikelySpeech(s: string): boolean {
-  const t = s.trim();
-  if (t.length < 2) return false;
-  return /[\p{L}]/u.test(t); // tem pelo menos uma letra
+function buildMediaRecorder(stream: MediaStream): MediaRecorder {
+  const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+    ? 'audio/webm;codecs=opus'
+    : 'audio/webm';
+  return new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 128_000 });
 }
 
-/** ===== WebSpeech (fallback opcional) ===== */
-class WebSpeechBackend implements Backend {
-  private recognition: any = null;
-  private aborting = false;
-
-  start() {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      toast.error('O seu navegador não suporta Web Speech.');
-      return;
-    }
-
-    this.recognition = new SpeechRecognition();
-    this.recognition.continuous = true;
-    this.recognition.lang = 'pt-BR';
-    this.recognition.interimResults = true;
-
-    this.aborting = false;
-
-    this.recognition.onresult = (event: any) => {
-      const last = event.results?.[event.results.length - 1];
-      if (!last) return;
-
-      const text = String(last[0]?.transcript || '').trim();
-      if (!text) return;
-
-      // Envia CRU (sem normalizar/alterar)
-      if (last.isFinal) {
-        if (!isLikelySpeech(text)) return;
-        transcriptHandler?.(text);
-      }
-      // Se quiser parciais:
-      // else { transcriptHandler?.(text); }
-    };
-
-    this.recognition.onerror = (event: any) => {
-      if (this.aborting) return;
-      const err = event?.error || 'desconhecido';
-      toast.error(`Erro na transcrição: ${err}`);
-    };
-
-    this.recognition.onend = () => {
-      if (!this.aborting) {
-        try { this.recognition.start(); } catch {}
-      }
-    };
-
-    try {
-      this.recognition.start();
-      toast.success('Transcrição (Web Speech) iniciada.');
-    } catch {
-      toast.error('Não foi possível iniciar a transcrição (Web Speech).');
-    }
-  }
-
-  stop() {
-    this.aborting = true;
-    try { this.recognition?.stop(); } catch {}
-    this.recognition = null;
-  }
-}
-
-/** ===== Whisper local (WebGPU/WASM) ===== */
-class WhisperLocalBackend implements Backend {
-  private impl: WhisperWebGPUBackend | null = null;
-
-  constructor() {
-    this.impl = new WhisperWebGPUBackend(
-      // onPartial (se quiser exibir interinos em tempo real, descomente)
-      // (t) => { if (isLikelySpeech(t)) transcriptHandler?.(t); },
-      undefined,
-      // onFinal — envia CRU ao handler
-      (t) => { if (isLikelySpeech(t)) transcriptHandler?.(t); }
-    );
-  }
-  async start(opts?: { contextHint?: string; stream?: MediaStream }) {
-    await this.impl?.start(opts);
-  }
-  stop() {
-    this.impl?.stop();
-  }
-}
-
-const backends: Record<Exclude<AsrEngine, 'auto'>, () => Backend> = {
-  webspeech:    () => new WebSpeechBackend(),
-  'whisper-webgpu': () => new WhisperLocalBackend(),
-  'whisper-wasm'  : () => new WhisperLocalBackend(), // Transformers decide backend (WebGPU/WASM)
-};
-
-export const startASR = (
+export async function startASR(
   engine: Exclude<AsrEngine, 'auto'>,
-  contextHint?: string,
-  stream?: MediaStream
-) => {
-  stopASR();
-  const factory = backends[engine];
-  if (factory) {
-    activeBackend = factory();
-    const res = activeBackend.start({ contextHint, stream });
-    if (res instanceof Promise) res.catch(e => toast.error(String(e?.message || e)));
+  contextHint: string | undefined,
+  stream: MediaStream
+) {
+  await stopASR();
+  currentEngine = engine;
+  mediaStream = stream;
+
+  if (engine === 'webspeech') startWebSpeech(contextHint);
+  else if (engine === 'xenova_whisper') await startWhisper(contextHint, stream);
+}
+
+export async function stopASR() {
+  if (currentEngine === 'webspeech') {
+    if (webspeechRec) {
+      try {
+        webspeechRec.onresult = null;
+        webspeechRec.onend = null;
+        webspeechRec.onerror = null;
+        webspeechRec.stop();
+      } catch {}
+    }
+    webspeechRec = null;
   }
-};
+  if (currentEngine === 'xenova_whisper') {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      try { mediaRecorder.stop(); } catch {}
+    }
+    mediaRecorder = null;
+    chunks = [];
+    if (whisperWorker) { whisperWorker.terminate(); whisperWorker = null; }
+  }
+  currentEngine = null;
+}
 
-export const stopASR = () => {
-  activeBackend?.stop?.();
-  activeBackend = null;
-};
+function startWebSpeech(_contextHint?: string) {
+  const SR: any = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+  if (!SR) { handler('[ASR] Web Speech API indisponível.'); return; }
+  webspeechRec = new SR();
+  webspeechRec.lang = 'pt-BR';
+  webspeechRec.continuous = true;
+  webspeechRec.interimResults = true;
 
-export const setTranscriptHandler = (handler: (text: string) => void) => {
-  transcriptHandler = handler;
-};
+  let buffer = '';
+  webspeechRec.onresult = (ev: any) => {
+    let interim = '';
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const res = ev.results[i];
+      if (res.isFinal) buffer += res[0].transcript + ' ';
+      else interim += res[0].transcript + ' ';
+    }
+    const out = (buffer + interim).trim();
+    if (out) handler(out);
+  };
+  webspeechRec.onerror = (e: any) => console.warn('[WebSpeech:error]', e);
+  webspeechRec.onend = () => { try { webspeechRec.start(); } catch {} };
+  try { webspeechRec.start(); } catch (e) { console.error(e); }
+}
+
+async function startWhisper(contextHint: string | undefined, stream: MediaStream) {
+  whisperWorker = new Worker(new URL('../workers/whisper.worker.ts', import.meta.url), { type: 'module' });
+
+  whisperWorker.onmessage = (ev: MessageEvent) => {
+    const { type, payload } = ev.data || {};
+    if (type === 'transcript') {
+      handler(String(payload || '').trim());
+    } else if (type === 'error') {
+      console.error('[whisper.worker]', payload);
+    }
+  };
+
+  // Config: 20s de chunk + 3s de stride. Contexto vem no próprio worker.
+  whisperWorker.postMessage({
+    type: 'init',
+    payload: {
+      lang: 'pt',
+      task: 'transcribe',
+      context: contextHint || '',
+      chunkMs: 20000,
+      strideMs: 3000,
+    }
+  });
+
+  mediaRecorder = buildMediaRecorder(stream);
+  const INTERVAL_MS = 20000;
+
+  // Vamos usar o modo "streaming": start(INTERVAL_MS) emite dataavailable a cada 20s.
+  mediaRecorder.ondataavailable = async (e) => {
+    if (!e.data || e.data.size === 0) return;
+    try {
+      const buf = await e.data.arrayBuffer();
+      whisperWorker?.postMessage({ type: 'chunk', payload: buf }, [buf]);
+    } catch (err) {
+      console.error('[ondataavailable] arrayBuffer error', err);
+    }
+  };
+
+  mediaRecorder.onstop = () => {
+    // nada especial — não paramos em Android
+  };
+
+  try {
+    // IMPORTANTE no Android: passar timeslice para gerar eventos periódicos
+    mediaRecorder.start(INTERVAL_MS);
+  } catch (e) {
+    console.error('[MediaRecorder.start]', e);
+  }
+
+  // Pausar quando a aba perder foco (Android pode suspender Worker/Audio)
+  const onVis = () => {
+    if (document.hidden) {
+      try { if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop(); } catch {}
+    } else if (currentEngine === 'xenova_whisper') {
+      try { mediaRecorder = buildMediaRecorder(stream); mediaRecorder.ondataavailable = async (e) => {
+        if (!e.data || e.data.size === 0) return;
+        const buf = await e.data.arrayBuffer();
+        whisperWorker?.postMessage({ type: 'chunk', payload: buf }, [buf]);
+      }; mediaRecorder.start(INTERVAL_MS); } catch {}
+    }
+  };
+  document.addEventListener('visibilitychange', onVis, { passive: true });
+
+  // limpar no stopASR()
+}

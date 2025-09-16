@@ -1,13 +1,14 @@
-export type AsrEngine = 'webspeech' | 'whisper-webgpu' | 'whisper-wasm' | 'auto';
+// src/lib/engine.ts
+export type AsrEngine = 'auto' | 'webspeech' | 'xenova_whisper';
 
+/** Pick do engine. Em "auto" prioriza Whisper (Xenova) para robustez a ruído. */
 export function pickEngine(flag: AsrEngine): AsrEngine {
   if (flag !== 'auto') return flag;
-
-  // Se WebGPU/WASM disponível, prioriza Whisper local
-  const hasGPU = !!(navigator as any).gpu;
-  if (hasGPU) return 'whisper-webgpu';
-  // Fallback: Whisper em WASM (Transformers escolhe backend WASM)
-  if (WebAssembly && typeof WebAssembly === 'object') return 'whisper-wasm';
-  // Último recurso: Web Speech (online, dependente do browser; não envia áudio ao seu servidor)
+  const hasWasm = typeof WebAssembly !== 'undefined';
+  const hasWorker = typeof Worker !== 'undefined';
+  const hasWebSpeech = typeof window !== 'undefined' &&
+    (((window as any).webkitSpeechRecognition) || ((window as any).SpeechRecognition));
+  if (hasWasm && hasWorker) return 'xenova_whisper';
+  if (hasWebSpeech) return 'webspeech';
   return 'webspeech';
 }
