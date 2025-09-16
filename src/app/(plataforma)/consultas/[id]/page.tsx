@@ -237,17 +237,18 @@ export default function ConsultationDetailPage() {
   }, [consultationDate, id, patient, supabase]);
 
   const handleFinalizeConsultation = useCallback(async () => {
-    if (!documents.prontuario) {
-      toast.error('Gere o prontuário antes de finalizar.');
-      return;
-    }
+    if (!documents.prontuario) { toast.error('Gere o prontuário antes de finalizar.'); return; }
     setIsFinalizing(true);
     try {
-      // salva transcrição bruta vinculada ao paciente/consulta
+      // ⬅️ se ainda está gravando, pare e dê 1 “respiro” p/ o flush final
+      if (isListening) {
+        setIsListening(false);
+        await new Promise(r => setTimeout(r, 600)); // 0.6s é suficiente
+      }
+
       const { fullTranscriptText } = baseGenerationData;
       await saveTranscriptToDB(fullTranscriptText);
 
-      // atualiza a consulta
       const { error } = await supabase
         .from('consultas')
         .update({
@@ -271,7 +272,7 @@ export default function ConsultationDetailPage() {
     } finally {
       setIsFinalizing(false);
     }
-  }, [baseGenerationData, documents, id, labResults, router, saveTranscriptToDB, supabase, vitals]);
+  }, [baseGenerationData, documents, id, isListening, labResults, router, saveTranscriptToDB, supabase, vitals]);
 
   // Navegar para /consultas também via onClick para contornar overlays
   const handleGoBack = useCallback(
