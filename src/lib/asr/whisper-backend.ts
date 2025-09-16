@@ -55,8 +55,8 @@ export class WhisperWebGPUBackend {
       this.worklet = new AudioWorkletNode(this.ac, 'resample-processor', { numberOfInputs: 1, numberOfOutputs: 0 });
       this.src.connect(this.worklet);
 
-      // Worker (bundlado pelo Next/Webpack) — sem requests de rede “pending”
-      const workerUrl = new URL('./whisper-worker.ts', import.meta.url);
+      // depois (aponta pro .js dentro de src → o bundler empacota e vira blob:)
+      const workerUrl = new URL('./whisper-worker.js', import.meta.url);
       this.worker = new Worker(workerUrl, { type: 'module', name: 'whisper-worker' });
 
       this.worker.onmessage = (e) => {
