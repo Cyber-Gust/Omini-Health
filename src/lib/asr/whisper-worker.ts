@@ -1,24 +1,20 @@
-// Worker módulo (type: 'module')
-// Recebe PCM 16k mono (Float32Array). Emite {partial, final}.
-// Usa Transformers.js localmente (WebGPU quando disponível; fallback WASM).
-
+// src/lib/asr/whisper-worker.ts
 import { pipeline, env, type Pipeline } from '@xenova/transformers';
 
 // ======= CONFIG =======
 const LANGUAGE = 'pt';
-const TASK = 'transcribe'; // vs 'translate'
-const MODEL = 'Xenova/whisper-small'; // pode trocar por tiny/base/small-medium large
-const QUANTIZED = true;              // menor, mais leve
-const CHUNK_SEC = 14;                // janela para parciais
-const STRIDE_SEC = 4;                // overlap
+const TASK = 'transcribe'; // NÃO translate
+const MODEL = 'Xenova/whisper-small'; // ajuste p/ tiny/base/small conforme o device
+const QUANTIZED = true;
+const CHUNK_SEC = 14;
+const STRIDE_SEC = 4;
 const SR = 16000;
-// Para hospedar modelos localmente, descomente as 2 linhas abaixo e ponha os arquivos em /public/models/whisper-small
-// env.localModelPath = '/models';    // ex: /public/models
+
+// (Opcional) hospedar modelos localmente em /public/models
+// env.localModelPath = '/models';
 // env.allowLocalModels = true;
-// ======================
 
-env.backends.onnx.wasm.numThreads = 1; // ajuste p/ dispositivos fracos
-
+env.backends.onnx.wasm.numThreads = 1; // ajuste se quiser
 let asr: Pipeline | null = null;
 let pcm: Float32Array | null = null;
 let lastFlushIdx = 0;
@@ -26,7 +22,6 @@ let busy = false;
 
 async function ensurePipeline() {
   if (asr) return;
-  // Ao inicializar, o modelo é baixado (ou lido localmente se configurado).
   asr = await pipeline('automatic-speech-recognition', MODEL, { quantized: QUANTIZED });
   (postMessage as any)({ type: 'ready' });
 }
@@ -52,17 +47,14 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
     }
 
     if (m.type === 'push') {
-      // append
       if (!pcm) pcm = m.pcm;
       else {
         const out = new Float32Array(pcm.length + m.pcm.length);
         out.set(pcm, 0); out.set(m.pcm, pcm.length);
         pcm = out;
       }
-      // Parciais: roda no fim de cada push se não estiver ocupado
       if (!busy) {
         busy = true;
-        // usa a janela final (CHUNK_SEC) com stride
         const L = Math.floor(CHUNK_SEC * SR);
         const S = Math.floor(STRIDE_SEC * SR);
         const start = Math.max(0, (pcm.length - L - S));
@@ -75,7 +67,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
           task: TASK,
           chunk_length_s: CHUNK_SEC,
           stride_length_s: STRIDE_SEC,
-          return_timestamps: false
+          return_timestamps: false,
         });
         const text = (res?.text || '').trim();
         if (text) (postMessage as any)({ type: 'partial', text });
@@ -95,7 +87,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
         task: TASK,
         chunk_length_s: CHUNK_SEC,
         stride_length_s: STRIDE_SEC,
-        return_timestamps: false
+        return_timestamps: false,
       });
       const text = (res?.text || '').trim();
       if (text) (postMessage as any)({ type: 'final', text });

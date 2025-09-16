@@ -3,6 +3,24 @@ import { createVAD } from '@/lib/audio/vad';
 
 type Opts = { contextHint?: string; stream?: MediaStream };
 
+async function loadWorklet(ac: AudioContext, url: string) {
+  // Tenta carregar direto do caminho público; se falhar (404/MIME), faz fallback via Blob
+  try {
+    await ac.audioWorklet.addModule(url);
+  } catch {
+    const res = await fetch(`${url}${url.includes('?') ? '&' : '?'}v=${Date.now()}`);
+    if (!res.ok) throw new Error(`Worklet fetch fail: ${res.status}`);
+    const code = await res.text();
+    const blob = new Blob([code], { type: 'text/javascript' });
+    const blobUrl = URL.createObjectURL(blob);
+    try {
+      await ac.audioWorklet.addModule(blobUrl);
+    } finally {
+      URL.revokeObjectURL(blobUrl);
+    }
+  }
+}
+
 export class WhisperWebGPUBackend {
   private ac: AudioContext | null = null;
   private src: MediaStreamAudioSourceNode | null = null;
@@ -13,6 +31,7 @@ export class WhisperWebGPUBackend {
   private vad = createVAD(16000, 30, 300);
   private onPartial: ((t: string) => void) | null = null;
   private onFinal: ((t: string) => void) | null = null;
+  private basePath = (process.env.NEXT_PUBLIC_BASE_PATH || '').replace(/\/$/, ''); // ex.: '' ou '/app'
 
   constructor(onPartial?: (t: string) => void, onFinal?: (t: string) => void) {
     this.onPartial = onPartial || null;
@@ -23,47 +42,61 @@ export class WhisperWebGPUBackend {
     if (this.started) return;
     if (!opts?.stream) { toast.error('Áudio não disponível'); return; }
 
-    const AC = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext;
-    this.ac = new AC({ latencyHint: 'interactive' });
-    if (this.ac.state === 'suspended') { try { await this.ac.resume(); } catch {} }
+    try {
+      const AC = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext;
+      this.ac = new AC({ latencyHint: 'interactive' });
+      if (this.ac.state === 'suspended') { try { await this.ac.resume(); } catch {} }
 
-    // Worklet
-    await this.ac.audioWorklet.addModule('/worklets/resample-worklet.js');
-    this.src = this.ac.createMediaStreamSource(opts.stream);
-    this.worklet = new AudioWorkletNode(this.ac, 'resample-processor', { numberOfInputs: 1, numberOfOutputs: 0 });
-    this.src.connect(this.worklet);
+      // Worklet (carregado de /public) — com fallback por Blob
+      const workletURL = `${this.basePath}/worklets/resample-worklet.js`;
+      await loadWorklet(this.ac, workletURL);
 
-    // Worker
-    this.worker = new Worker('/src/lib/asr/whisper-worker.js', { type: 'module' });
-    this.worker.onmessage = (e) => {
-      const m = e.data;
-      if (m.type === 'ready') { toast.success('Whisper local pronto.'); return; }
-      if (m.type === 'partial') this.onPartial?.(m.text);
-      if (m.type === 'final') this.onFinal?.(m.text);
-      if (m.type === 'error') toast.error('ASR: ' + m.message);
-    };
-    this.worker.postMessage({ type: 'init' });
+      this.src = this.ac.createMediaStreamSource(opts.stream);
+      this.worklet = new AudioWorkletNode(this.ac, 'resample-processor', { numberOfInputs: 1, numberOfOutputs: 0 });
+      this.src.connect(this.worklet);
 
-    // Encaminha PCM 16k + VAD
-    this.worklet.port.onmessage = (ev) => {
-      const f32: Float32Array = ev.data;
-      const evs = this.vad.feed(f32);
-      const nowLen = Date.now();
-      if (evs.some(e => e.type === 'start')) this.lastVoice = nowLen;
+      // Worker (bundlado pelo Next/Webpack) — sem requests de rede “pending”
+      const workerUrl = new URL('./whisper-worker.ts', import.meta.url);
+      this.worker = new Worker(workerUrl, { type: 'module', name: 'whisper-worker' });
 
-      // envia “push” contínuo
-      this.worker?.postMessage({ type: 'push', pcm: f32 }, [f32.buffer]);
+      this.worker.onmessage = (e) => {
+        const m = e.data;
+        if (m.type === 'ready') { toast.success('Whisper local pronto.'); return; }
+        if (m.type === 'partial') this.onPartial?.(m.text);
+        if (m.type === 'final') this.onFinal?.(m.text);
+        if (m.type === 'error') toast.error('ASR: ' + m.message);
+      };
+      this.worker.onerror = (ev: any) => {
+        console.error('Worker error:', ev?.message || ev);
+        toast.error('ASR: erro no worker.');
+      };
+      this.worker.postMessage({ type: 'init' });
 
-      // se passou um tempo em silêncio, força “flush”
-      // (ou a cada ~1.5s sem voz)
-      if (nowLen - this.lastVoice > 1500 && this.lastVoice !== 0) {
-        this.worker?.postMessage({ type: 'flush' });
-        this.lastVoice = 0;
-      }
-    };
+      // Encaminha PCM 16k + VAD
+      this.worklet.port.onmessage = (ev) => {
+        const f32: Float32Array = ev.data;
+        const evs = this.vad.feed(f32);
+        const now = Date.now();
+        if (evs.some(e => e.type === 'start')) this.lastVoice = now;
 
-    this.started = true;
-    toast.success('Transcrição local iniciada.');
+        // envia “push” contínuo
+        this.worker?.postMessage({ type: 'push', pcm: f32 }, [f32.buffer]);
+
+        // silêncio por ~1.5s → flush
+        if (this.lastVoice !== 0 && now - this.lastVoice > 1500) {
+          this.worker?.postMessage({ type: 'flush' });
+          this.lastVoice = 0;
+        }
+      };
+
+      this.started = true;
+      toast.success('Transcrição local iniciada.');
+    } catch (err: any) {
+      // se falhar em qualquer etapa, limpa tudo para poder tentar de novo
+      console.error('Whisper backend start error:', err);
+      toast.error(`Falha ao iniciar transcrição local: ${err?.message || err}`);
+      this.stop();
+    }
   }
 
   stop() {
@@ -73,6 +106,10 @@ export class WhisperWebGPUBackend {
     try { this.ac?.close(); } catch {}
     try { this.worker?.postMessage({ type: 'flush' }); } catch {}
     try { this.worker?.terminate(); } catch {}
-    this.worklet = null; this.src = null; this.ac = null; this.worker = null;
+    this.worklet = null;
+    this.src = null;
+    this.ac = null;
+    this.worker = null;
+    this.lastVoice = 0;
   }
 }
