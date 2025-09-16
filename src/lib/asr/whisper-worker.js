@@ -1,7 +1,6 @@
 // src/lib/asr/whisper-worker.js
 import { pipeline, env } from '@xenova/transformers';
 
-// ======= CONFIG =======
 const LANGUAGE = 'pt';
 const TASK = 'transcribe';
 const MODEL = 'Xenova/whisper-small';
@@ -10,7 +9,7 @@ const CHUNK_SEC = 14;
 const STRIDE_SEC = 4;
 const SR = 16000;
 
-// Se quiser hospedar local:
+// (opcional) hospedar local:
 // env.localModelPath = '/models';
 // env.allowLocalModels = true;
 
@@ -30,16 +29,10 @@ async function ensurePipeline() {
 self.onmessage = async (e) => {
   try {
     const m = e.data;
-    if (m.type === 'init') {
-      await ensurePipeline();
-      return;
-    }
+    if (m.type === 'init') { await ensurePipeline(); return; }
     if (!asr) await ensurePipeline();
 
-    if (m.type === 'reset') {
-      pcm = null; lastFlushIdx = 0;
-      return;
-    }
+    if (m.type === 'reset') { pcm = null; lastFlushIdx = 0; return; }
 
     if (m.type === 'push') {
       if (!pcm) pcm = m.pcm;

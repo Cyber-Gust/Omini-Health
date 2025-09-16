@@ -56,7 +56,7 @@ export class WhisperWebGPUBackend {
       this.src.connect(this.worklet);
 
       // depois (aponta pro .js dentro de src → o bundler empacota e vira blob:)
-      const workerUrl = new URL('./whisper-worker.js', import.meta.url);
+      const workerUrl = new URL('./whisper-worker.js?worker&module', import.meta.url);
       this.worker = new Worker(workerUrl, { type: 'module', name: 'whisper-worker' });
 
       this.worker.onmessage = (e) => {
