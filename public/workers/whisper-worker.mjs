@@ -1,26 +1,20 @@
-/* global self */
-self.importScripts('/vendors/transformers.min.js');
-
-const { pipeline, env } = self.transformers;
+// public/workers/whisper-worker.mjs
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers/dist/transformers.min.js';
 
 // ======= CONFIG =======
-const LANGUAGE = 'pt';           // força transcrição em PT (não traduz)
+const LANGUAGE = 'pt';
 const TASK = 'transcribe';
-const MODEL = 'Xenova/whisper-small';  // troque para tiny/base se precisar de mais velocidade
+const MODEL = 'Xenova/whisper-small'; // mude para tiny/base se quiser
 const QUANTIZED = true;
 const CHUNK_SEC = 14;
 const STRIDE_SEC = 4;
 const SR = 16000;
 
-// (Opcional) 100% offline: baixe transformers.min.js para /public/vendors
-// e troque a linha do importScripts acima por:
-// self.importScripts('/vendors/transformers.min.js');
-
-// (Opcional) modelos locais:
+// (opcional) modelos locais
 // env.localModelPath = '/models';
 // env.allowLocalModels = true;
 
-// Afinar threads WASM se quiser
+// (opcional) afinar threads
 env.backends.onnx.wasm.numThreads = 1;
 
 let asr = null;
@@ -31,34 +25,24 @@ let busy = false;
 async function ensurePipeline() {
   if (asr) return;
   asr = await pipeline('automatic-speech-recognition', MODEL, { quantized: QUANTIZED });
-  self.postMessage({ type: 'ready' });
+  postMessage({ type: 'ready' });
 }
 
 self.onmessage = async (e) => {
   try {
     const m = e.data;
-
-    if (m.type === 'init') {
-      await ensurePipeline();
-      return;
-    }
-
+    if (m.type === 'init') { await ensurePipeline(); return; }
     if (!asr) await ensurePipeline();
 
-    if (m.type === 'reset') {
-      pcm = null; lastFlushIdx = 0;
-      return;
-    }
+    if (m.type === 'reset') { pcm = null; lastFlushIdx = 0; return; }
 
     if (m.type === 'push') {
-      if (!pcm) {
-        pcm = m.pcm;
-      } else {
+      if (!pcm) pcm = m.pcm;
+      else {
         const out = new Float32Array(pcm.length + m.pcm.length);
         out.set(pcm, 0); out.set(m.pcm, pcm.length);
         pcm = out;
       }
-
       if (!busy) {
         busy = true;
         const L = Math.floor(CHUNK_SEC * SR);
@@ -74,9 +58,8 @@ self.onmessage = async (e) => {
           stride_length_s: STRIDE_SEC,
           return_timestamps: false,
         });
-
-        const text = (res && res.text ? String(res.text).trim() : '');
-        if (text) self.postMessage({ type: 'partial', text });
+        const text = (res?.text || '').trim();
+        if (text) postMessage({ type: 'partial', text });
         busy = false;
       }
       return;
@@ -84,7 +67,6 @@ self.onmessage = async (e) => {
 
     if (m.type === 'flush') {
       if (!pcm || pcm.length <= lastFlushIdx + 1024) return;
-
       const segment = pcm.subarray(lastFlushIdx);
       lastFlushIdx = pcm.length;
 
@@ -95,12 +77,11 @@ self.onmessage = async (e) => {
         stride_length_s: STRIDE_SEC,
         return_timestamps: false,
       });
-
-      const text = (res && res.text ? String(res.text).trim() : '');
-      if (text) self.postMessage({ type: 'final', text });
+      const text = (res?.text || '').trim();
+      if (text) postMessage({ type: 'final', text });
       return;
     }
   } catch (err) {
-    self.postMessage({ type: 'error', message: String(err && err.message ? err.message : err) });
+    postMessage({ type: 'error', message: String(err?.message || err) });
   }
 };

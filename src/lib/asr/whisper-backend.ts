@@ -51,7 +51,7 @@ export class WhisperWebGPUBackend {
       this.src.connect(this.worklet);
 
       // Worker (public/ – clássico com importScripts)
-      this.worker = new Worker('/workers/whisper-worker.js', { name: 'whisper-worker' });
+      this.worker = new Worker('/workers/whisper-worker.mjs', { type: 'module', name: 'whisper-worker' });
 
       this.worker.onmessage = (e) => {
         const m = e.data;
