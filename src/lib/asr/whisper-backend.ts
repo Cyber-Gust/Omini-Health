@@ -28,7 +28,7 @@ export class WhisperWebGPUBackend {
     if (this.ac.state === 'suspended') { try { await this.ac.resume(); } catch {} }
 
     // Worklet
-    await this.ac.audioWorklet.addModule('/src/lib/audio/resample-worklet.js');
+    await this.ac.audioWorklet.addModule('/worklets/resample-worklet.js');
     this.src = this.ac.createMediaStreamSource(opts.stream);
     this.worklet = new AudioWorkletNode(this.ac, 'resample-processor', { numberOfInputs: 1, numberOfOutputs: 0 });
     this.src.connect(this.worklet);
