@@ -1,145 +1,291 @@
 // src/lib/asr-adapter.ts
-import { AsrEngine } from './engine';
+'use client';
 
-let handler: (text: string) => void = () => {};
-export function setTranscriptHandler(fn: (text: string) => void) { handler = fn; }
+export type AsrEngine = 'auto' | 'xenova_whisper';
 
-let currentEngine: AsrEngine | null = null;
-let webspeechRec: any = null;
-let whisperWorker: Worker | null = null;
-let mediaStream: MediaStream | null = null;
-let mediaRecorder: MediaRecorder | null = null;
-let chunks: Blob[] = [];
-
-function buildMediaRecorder(stream: MediaStream): MediaRecorder {
-  const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-    ? 'audio/webm;codecs=opus'
-    : 'audio/webm';
-  return new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 128_000 });
+type Handler = (text: string) => void;
+let handler: Handler = () => {};
+export function setTranscriptHandler(fn: Handler) {
+  handler = fn || (() => {});
 }
+
+/** =========================
+ *  Estado & Config
+ *  ========================= */
+let audioCtx: AudioContext | null = null;
+let source: MediaStreamAudioSourceNode | null = null;
+let processor: ScriptProcessorNode | null = null; // usado apenas no fallback
+let workletNode: AudioWorkletNode | null = null;
+
+let running = false;
+let transcriber: any | null = null;
+
+// Ring buffer para janela deslizante
+const SR = 16_000;
+let ring: Float32Array | null = null;
+let ringIdx = 0;
+let ringLen = 0;
+
+// janela e passo (latência x estabilidade)
+const WINDOW_S = 3;              // 3 s de janela
+const STEP_MS = 2500;            // tick a cada 2.5 s (overlap ~0.5 s)
+const RING_SAMPLES = SR * WINDOW_S;
+
+let intervalId: number | null = null;
+
+// Anti-concorrência + VAD simples
+let busy = false;
+let silenceTicks = 0;
+const RMS_SILENCE = 0.004;       // ajuste conforme microfone/ambiente
+const VOICE_WARMUP_TICKS = 2;    // precisa 2 ticks de “voz” antes de transcrever
+
+// Acúmulo de transcrição
+let _accText = '';
+let _lastEmitted = '';
+export function getTranscriptText(): string {
+  return _accText.trim();
+}
+export function resetTranscriptText() {
+  _accText = '';
+  _lastEmitted = '';
+}
+
+/** =========================
+ *  Helpers
+ *  ========================= */
+
+// downsample rápido (nearest)
+function resampleToMono16k(input: Float32Array, inSampleRate: number): Float32Array {
+  if (inSampleRate === SR) return input;
+  const ratio = inSampleRate / SR;
+  const outLen = Math.floor(input.length / ratio);
+  const out = new Float32Array(outLen);
+  let pos = 0;
+  for (let i = 0; i < outLen; i++) {
+    out[i] = input[Math.floor(pos)] || 0;
+    pos += ratio;
+  }
+  return out;
+}
+
+// Singleton do pipeline (sobrevive a HMR)
+async function getTranscriber() {
+  if (typeof window === 'undefined') return null;
+  const g = globalThis as any;
+  if (g.__whisper_transcriber) return g.__whisper_transcriber;
+  if (g.__whisper_transcriber_promise) return g.__whisper_transcriber_promise;
+
+  const { pipeline, env } = await import('@xenova/transformers');
+  // manter simples (WASM single-thread, sem proxy/worker) — evita COOP/COEP
+  env.allowLocalModels = false;
+  env.backends.onnx.wasm.numThreads = 1;
+  env.backends.onnx.wasm.proxy = false;
+  // Se quiser hospedar local:
+  // env.localModelPath = '/models';
+  // env.backends.onnx.wasm.wasmPaths = '/wasm';
+
+  const p = pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny');
+  g.__whisper_transcriber_promise = p;
+  const t = await p;
+  g.__whisper_transcriber = t;
+  return t;
+}
+
+// acumular texto evitando duplicatas de parciais
+function accumulateTextPiece(currentRaw: string) {
+  const current = (currentRaw || '').trim();
+  if (!current) return;
+
+  if (current === _lastEmitted) return;
+
+  let delta = current;
+  if (_lastEmitted && current.startsWith(_lastEmitted)) {
+    delta = current.slice(_lastEmitted.length).trimStart();
+  }
+  _lastEmitted = current;
+
+  const endsSentence = /[.!?:…]\s*$/.test(delta);
+  _accText += delta + (endsSentence ? '\n' : ' ');
+  handler(current); // mantém callback para quem quiser depurar/logar
+}
+
+/** =========================
+ *  API pública
+ *  ========================= */
 
 export async function startASR(
   engine: Exclude<AsrEngine, 'auto'>,
   contextHint: string | undefined,
   stream: MediaStream
 ) {
-  await stopASR();
-  currentEngine = engine;
-  mediaStream = stream;
+  if (running) return;
+  if (typeof window === 'undefined') return;
+  running = true;
 
-  if (engine === 'webspeech') startWebSpeech(contextHint);
-  else if (engine === 'xenova_whisper') await startWhisper(contextHint, stream);
-}
+  // zera acumulador no início de cada sessão
+  resetTranscriptText();
 
-export async function stopASR() {
-  if (currentEngine === 'webspeech') {
-    if (webspeechRec) {
-      try {
-        webspeechRec.onresult = null;
-        webspeechRec.onend = null;
-        webspeechRec.onerror = null;
-        webspeechRec.stop();
-      } catch {}
-    }
-    webspeechRec = null;
+  transcriber = await getTranscriber();
+  if (!transcriber) {
+    console.error('ASR: transcriber não disponível.');
+    running = false;
+    return;
   }
-  if (currentEngine === 'xenova_whisper') {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      try { mediaRecorder.stop(); } catch {}
-    }
-    mediaRecorder = null;
-    chunks = [];
-    if (whisperWorker) { whisperWorker.terminate(); whisperWorker = null; }
-  }
-  currentEngine = null;
-}
 
-function startWebSpeech(_contextHint?: string) {
-  const SR: any = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-  if (!SR) { handler('[ASR] Web Speech API indisponível.'); return; }
-  webspeechRec = new SR();
-  webspeechRec.lang = 'pt-BR';
-  webspeechRec.continuous = true;
-  webspeechRec.interimResults = true;
+  // Áudio graph
+  audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  source = audioCtx.createMediaStreamSource(stream);
 
-  let buffer = '';
-  webspeechRec.onresult = (ev: any) => {
-    let interim = '';
-    for (let i = ev.resultIndex; i < ev.results.length; i++) {
-      const res = ev.results[i];
-      if (res.isFinal) buffer += res[0].transcript + ' ';
-      else interim += res[0].transcript + ' ';
-    }
-    const out = (buffer + interim).trim();
-    if (out) handler(out);
-  };
-  webspeechRec.onerror = (e: any) => console.warn('[WebSpeech:error]', e);
-  webspeechRec.onend = () => { try { webspeechRec.start(); } catch {} };
-  try { webspeechRec.start(); } catch (e) { console.error(e); }
-}
+  // prepara ring
+  ring = new Float32Array(RING_SAMPLES);
+  ringLen = RING_SAMPLES;
+  ringIdx = 0;
 
-async function startWhisper(contextHint: string | undefined, stream: MediaStream) {
-  whisperWorker = new Worker(new URL('../workers/whisper.worker.ts', import.meta.url), { type: 'module' });
-
-  whisperWorker.onmessage = (ev: MessageEvent) => {
-    const { type, payload } = ev.data || {};
-    if (type === 'transcript') {
-      handler(String(payload || '').trim());
-    } else if (type === 'error') {
-      console.error('[whisper.worker]', payload);
-    }
-  };
-
-  // Config: 20s de chunk + 3s de stride. Contexto vem no próprio worker.
-  whisperWorker.postMessage({
-    type: 'init',
-    payload: {
-      lang: 'pt',
-      task: 'transcribe',
-      context: contextHint || '',
-      chunkMs: 20000,
-      strideMs: 3000,
-    }
-  });
-
-  mediaRecorder = buildMediaRecorder(stream);
-  const INTERVAL_MS = 20000;
-
-  // Vamos usar o modo "streaming": start(INTERVAL_MS) emite dataavailable a cada 20s.
-  mediaRecorder.ondataavailable = async (e) => {
-    if (!e.data || e.data.size === 0) return;
-    try {
-      const buf = await e.data.arrayBuffer();
-      whisperWorker?.postMessage({ type: 'chunk', payload: buf }, [buf]);
-    } catch (err) {
-      console.error('[ondataavailable] arrayBuffer error', err);
-    }
-  };
-
-  mediaRecorder.onstop = () => {
-    // nada especial — não paramos em Android
-  };
-
+  // tenta usar Worklet; se falhar, cai para ScriptProcessor
   try {
-    // IMPORTANTE no Android: passar timeslice para gerar eventos periódicos
-    mediaRecorder.start(INTERVAL_MS);
-  } catch (e) {
-    console.error('[MediaRecorder.start]', e);
+    await audioCtx.audioWorklet.addModule('/worklets/downsampler-processor.js'); // opcional; se não existir, entra no catch
+    workletNode = new AudioWorkletNode(audioCtx, 'downsampler-processor', {
+      numberOfInputs: 1,
+      numberOfOutputs: 0,
+      processorOptions: { targetSampleRate: 16000 },
+    });
+    source.connect(workletNode);
+    workletNode.port.onmessage = (e) => {
+      if (!running || !ring) return;
+      const { type, samples } = e.data || {};
+      if (type !== 'chunk' || !samples) return;
+      const chunk: Float32Array = samples;
+      for (let i = 0; i < chunk.length; i++) {
+        ring[ringIdx++] = chunk[i];
+        if (ringIdx >= ringLen) ringIdx = 0;
+      }
+    };
+    // manter “vivo” em alguns browsers
+    workletNode.connect(audioCtx.destination);
+    processor = null;
+  } catch {
+    // Fallback: ScriptProcessorNode (deprecated, mas simples)
+    processor = audioCtx.createScriptProcessor(4096, 1, 1);
+    processor.onaudioprocess = (e) => {
+      if (!running || !ring) return;
+      const inBuf = e.inputBuffer.getChannelData(0);
+      const resampled = resampleToMono16k(inBuf, audioCtx!.sampleRate);
+      for (let i = 0; i < resampled.length; i++) {
+        ring[ringIdx++] = resampled[i];
+        if (ringIdx >= ringLen) ringIdx = 0;
+      }
+    };
+    source.connect(processor);
+    processor.connect(audioCtx.destination);
+    workletNode = null;
   }
 
-  // Pausar quando a aba perder foco (Android pode suspender Worker/Audio)
-  const onVis = () => {
-    if (document.hidden) {
-      try { if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop(); } catch {}
-    } else if (currentEngine === 'xenova_whisper') {
-      try { mediaRecorder = buildMediaRecorder(stream); mediaRecorder.ondataavailable = async (e) => {
-        if (!e.data || e.data.size === 0) return;
-        const buf = await e.data.arrayBuffer();
-        whisperWorker?.postMessage({ type: 'chunk', payload: buf }, [buf]);
-      }; mediaRecorder.start(INTERVAL_MS); } catch {}
+  // loop de transcrição
+  const tick = async () => {
+    if (!running || !ring || !transcriber) return;
+
+    // snapshot linear do ring
+    const snapshot = new Float32Array(ringLen);
+    const tail = ringLen - ringIdx;
+    snapshot.set(ring.subarray(ringIdx), 0);
+    snapshot.set(ring.subarray(0, ringIdx), tail);
+
+    // VAD simples por RMS
+    let sum = 0;
+    for (let i = 0; i < snapshot.length; i++) sum += snapshot[i] * snapshot[i];
+    const rms = Math.sqrt(sum / snapshot.length);
+
+    if (rms < RMS_SILENCE) {
+      silenceTicks++;
+      return;
+    }
+    if (silenceTicks < VOICE_WARMUP_TICKS) {
+      silenceTicks++;
+      return;
+    }
+    silenceTicks = 0;
+
+    if (busy) return;
+    busy = true;
+
+    try {
+      // dá espaço pra UI respirar
+      await new Promise<void>((resolve) => {
+        (window as any).requestIdleCallback
+          ? (window as any).requestIdleCallback(() => resolve())
+          : requestAnimationFrame(() => resolve());
+      });
+
+      const result: any = await transcriber(snapshot, {
+        language: 'pt',
+        task: 'transcribe',
+        // opções extras poderiam ir aqui (chunk_length_s, return_timestamps, prompt etc.)
+      });
+      if (result?.text) {
+        accumulateTextPiece(String(result.text));
+      }
+    } catch (err) {
+      console.error('ASR error:', err);
+    } finally {
+      busy = false;
     }
   };
-  document.addEventListener('visibilitychange', onVis, { passive: true });
 
-  // limpar no stopASR()
+  intervalId = window.setInterval(tick, STEP_MS);
+
+  // pausa ticks quando a aba estiver oculta (economiza CPU)
+  const visHandler = () => {
+    if (document.hidden) {
+      if (intervalId) { clearInterval(intervalId); intervalId = null; }
+    } else if (!intervalId) {
+      intervalId = window.setInterval(tick, STEP_MS);
+    }
+  };
+  document.addEventListener('visibilitychange', visHandler);
+  // guard p/ remover no stop
+  (startASR as any).__visHandler = visHandler;
+}
+
+export function stopASR() {
+  if (!running) return;
+  running = false;
+
+  if (intervalId) {
+    window.clearInterval(intervalId);
+    intervalId = null;
+  }
+
+  const visHandler = (startASR as any).__visHandler as (() => void) | undefined;
+  if (visHandler) {
+    document.removeEventListener('visibilitychange', visHandler);
+    (startASR as any).__visHandler = undefined;
+  }
+
+  if (workletNode) {
+    try { workletNode.disconnect(); } catch {}
+    workletNode.port.onmessage = null as any;
+    workletNode = null;
+  }
+
+  if (processor) {
+    try { processor.disconnect(); } catch {}
+    processor.onaudioprocess = null;
+    processor = null;
+  }
+
+  if (source) {
+    try { source.disconnect(); } catch {}
+    source = null;
+  }
+
+  if (audioCtx) {
+    audioCtx.close().catch(() => {});
+    audioCtx = null;
+  }
+
+  ring = null;
+  ringIdx = 0;
+  ringLen = 0;
+  busy = false;
+  silenceTicks = 0;
 }

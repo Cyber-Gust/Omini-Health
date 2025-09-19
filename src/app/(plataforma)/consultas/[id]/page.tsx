@@ -7,8 +7,14 @@ import { useParams, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import Link from 'next/link';
 import { ArrowLeft, Loader2 } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import { getTranscriptText, resetTranscriptText } from '@/lib/asr-adapter';
+import type { TranscriptItem } from './components/BackgroundTranscriber';
 
-import BackgroundTranscriber, { type TranscriptItem } from './components/BackgroundTranscriber';
+const BackgroundTranscriber = dynamic(
+  () => import('./components/BackgroundTranscriber'),
+  { ssr: false }
+); 
 import PhysicalExamForm from './components/PhysicalExamForm';
 import PatientSummary from './components/PatientSummary';
 import VitalSignsForm from './components/VitalSignsForm';
@@ -179,11 +185,15 @@ export default function ConsultationDetailPage() {
   }, [transcript, physicalExamData, vitals, patient, labResults]);
 
   const handleGenerateDocument = useCallback(async (docType: keyof DocumentsState) => {
-    if (transcript.length === 0 && Object.keys(physicalExamData).length === 0) {
-      toast.error('A transcrição e o exame físico estão vazios.');
-      return;
-    }
-    setIsGenerating(docType);
+  // Pega direto do adapter
+  const fullTranscriptTextAdapter = getTranscriptText();
+
+  if (!fullTranscriptTextAdapter && Object.keys(physicalExamData).length === 0) {
+    toast.error('A transcrição e o exame físico estão vazios.');
+    return;
+  }
+
+  setIsGenerating(docType);
     const { fullTranscriptText, examText, vitalsText, patientHistoryText, labResultsText } = baseGenerationData;
 
     try {
@@ -237,17 +247,16 @@ export default function ConsultationDetailPage() {
   }, [consultationDate, id, patient, supabase]);
 
   const handleFinalizeConsultation = useCallback(async () => {
-    if (!documents.prontuario) { toast.error('Gere o prontuário antes de finalizar.'); return; }
-    setIsFinalizing(true);
-    try {
-      // ⬅️ se ainda está gravando, pare e dê 1 “respiro” p/ o flush final
-      if (isListening) {
-        setIsListening(false);
-        await new Promise(r => setTimeout(r, 600)); // 0.6s é suficiente
-      }
+  if (!documents.prontuario) { toast.error('Gere o prontuário antes de finalizar.'); return; }
+  setIsFinalizing(true);
+  try {
+    if (isListening) {
+      setIsListening(false);
+      await new Promise(r => setTimeout(r, 600));
+    }
 
-      const { fullTranscriptText } = baseGenerationData;
-      await saveTranscriptToDB(fullTranscriptText);
+    const fullTranscriptText = getTranscriptText();   // ⬅️ pega do adapter
+    await saveTranscriptToDB(fullTranscriptText);
 
       const { error } = await supabase
         .from('consultas')

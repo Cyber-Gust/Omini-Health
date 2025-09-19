@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Mic, MicOff } from 'lucide-react';
-import { startASR, stopASR, setTranscriptHandler } from '@/lib/asr-adapter';
+import {startASR, stopASR, setTranscriptHandler, getTranscriptText, resetTranscriptText} from '@/lib/asr-adapter';
 import { pickEngine, type AsrEngine } from '@/lib/engine';
 import { useMicStream } from '@/lib/useMicStream';
 import VoiceVisualizer from './VoiceVisualizer';
@@ -52,10 +52,13 @@ export default function BackgroundTranscriber({
   // microfone compartilhado
   const { stream, ready, error } = useMicStream(isListening);
 
+  const [debugTranscript, setDebugTranscript] = useState<string>("");
+
   // handler de transcrição
   useEffect(() => {
     setTranscriptHandler((text: string) => {
       onTranscriptUpdate({ speaker: 'Transcrição', text });
+      setDebugTranscript(text); // <<< mostra na caixa 
       setIsBlinking(true);
       const t = window.setTimeout(() => setIsBlinking(false), 450);
       void t;
@@ -65,35 +68,43 @@ export default function BackgroundTranscriber({
 
   // controla ASR + cronômetro
   useEffect(() => {
-    if (isListening && ready && stream) {
-      // inicia/ressincroniza cronômetro
-      const now = Date.now();
-      startRef.current = now;
-      setElapsedMs(0);
-      if (tickRef.current) window.clearInterval(tickRef.current);
-      tickRef.current = window.setInterval(() => {
-        if (startRef.current) setElapsedMs(Date.now() - startRef.current);
-      }, 1000);
+  if (isListening && ready && stream) {
+    // 🔹 novo ciclo: zera o acumulador do adapter
+    resetTranscriptText();                           // <-
 
-      // inicia motor com o MESMO stream
-      type EngineResolved = Exclude<AsrEngine, 'auto'>;
-      const engine = pickEngine(userFlag) as EngineResolved;
-      startASR(engine, contextHint, stream);
-    } else {
-      stopASR();
-      if (tickRef.current) {
-        window.clearInterval(tickRef.current);
-        tickRef.current = null;
-      }
+    // cronômetro (igual ao seu)
+    const now = Date.now();
+    startRef.current = now;
+    setElapsedMs(0);
+    if (tickRef.current) window.clearInterval(tickRef.current);
+    tickRef.current = window.setInterval(() => {
+      if (startRef.current) setElapsedMs(Date.now() - startRef.current);
+    }, 1000);
+
+    type EngineResolved = Exclude<AsrEngine, 'auto'>;
+    const engine = pickEngine(userFlag) as EngineResolved;
+    startASR(engine, contextHint, stream);
+  } else {
+    // 🔹 parou: encerra ASR
+    stopASR();
+
+    // (opcional) se quiser já registrar o texto final aqui:
+    const full = getTranscriptText();
+    if (full) onTranscriptUpdate({ speaker: 'Transcrição', text: full });
+
+    if (tickRef.current) {
+      window.clearInterval(tickRef.current);
+      tickRef.current = null;
     }
-    return () => {
-      stopASR();
-      if (tickRef.current) {
-        window.clearInterval(tickRef.current);
-        tickRef.current = null;
-      }
-    };
-  }, [isListening, ready, stream, userFlag, contextHint]);
+  }
+  return () => {
+    stopASR();
+    if (tickRef.current) {
+      window.clearInterval(tickRef.current);
+      tickRef.current = null;
+    }
+  };
+}, [isListening, ready, stream, userFlag, contextHint]);
 
   return (
     <div className="p-4 sm:p-6 rounded-lg border border-border bg-white shadow-sm">
