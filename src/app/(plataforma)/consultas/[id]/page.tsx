@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import Link from 'next/link';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import dynamic from 'next/dynamic';
-import { getTranscriptText, resetTranscriptText } from '@/lib/asr-adapter';
+import { getTranscriptText, resetTranscriptText } from '@/lib/ws-asr-adapter';
 import type { TranscriptItem } from './components/BackgroundTranscriber';
 
 const BackgroundTranscriber = dynamic(
@@ -185,15 +185,15 @@ export default function ConsultationDetailPage() {
   }, [transcript, physicalExamData, vitals, patient, labResults]);
 
   const handleGenerateDocument = useCallback(async (docType: keyof DocumentsState) => {
-  // Pega direto do adapter
-  const fullTranscriptTextAdapter = getTranscriptText();
+    // Pega direto do adapter
+    const fullTranscriptTextAdapter = getTranscriptText();
 
-  if (!fullTranscriptTextAdapter && Object.keys(physicalExamData).length === 0) {
-    toast.error('A transcrição e o exame físico estão vazios.');
-    return;
-  }
+    if (!fullTranscriptTextAdapter && Object.keys(physicalExamData).length === 0) {
+      toast.error('A transcrição e o exame físico estão vazios.');
+      return;
+    }
 
-  setIsGenerating(docType);
+    setIsGenerating(docType);
     const { fullTranscriptText, examText, vitalsText, patientHistoryText, labResultsText } = baseGenerationData;
 
     try {
@@ -208,6 +208,7 @@ export default function ConsultationDetailPage() {
           vitals: vitalsText,
           patientHistory: patientHistoryText,
           labResults: labResultsText,
+          useClean: true,  
         }),
       });
       if (!response.ok) throw new Error(`Falha ao gerar ${docType}.`);
@@ -247,16 +248,16 @@ export default function ConsultationDetailPage() {
   }, [consultationDate, id, patient, supabase]);
 
   const handleFinalizeConsultation = useCallback(async () => {
-  if (!documents.prontuario) { toast.error('Gere o prontuário antes de finalizar.'); return; }
-  setIsFinalizing(true);
-  try {
-    if (isListening) {
-      setIsListening(false);
-      await new Promise(r => setTimeout(r, 600));
-    }
+    if (!documents.prontuario) { toast.error('Gere o prontuário antes de finalizar.'); return; }
+    setIsFinalizing(true);
+    try {
+      if (isListening) {
+        setIsListening(false);
+        await new Promise(r => setTimeout(r, 600));
+      }
 
-    const fullTranscriptText = getTranscriptText();   // ⬅️ pega do adapter
-    await saveTranscriptToDB(fullTranscriptText);
+      const fullTranscriptText = getTranscriptText();   // ⬅️ pega do adapter
+      await saveTranscriptToDB(fullTranscriptText);
 
       const { error } = await supabase
         .from('consultas')
@@ -282,6 +283,25 @@ export default function ConsultationDetailPage() {
       setIsFinalizing(false);
     }
   }, [baseGenerationData, documents, id, isListening, labResults, router, saveTranscriptToDB, supabase, vitals]);
+
+  // [ADD] — ref para evitar writes redundantes a cada 30s
+  const lastSavedRef = useRef<string>(''); // [ADD]
+
+  // [ADD] — snapshot periódico (texto cru) durante a gravação
+  useEffect(() => { // [ADD]
+    if (!isListening) return;
+    const int = window.setInterval(async () => {
+      const snap = getTranscriptText();
+      if (!snap || snap === lastSavedRef.current) return;
+      try {
+        await saveTranscriptToDB(snap); // upsert 1:1 (consultation_id)
+        lastSavedRef.current = snap;
+      } catch (e) {
+        console.warn('Falha snapshot transcrição:', (e as any)?.message || e);
+      }
+    }, 30_000); // 30s
+    return () => window.clearInterval(int);
+  }, [isListening, saveTranscriptToDB]); // [ADD]
 
   // Navegar para /consultas também via onClick para contornar overlays
   const handleGoBack = useCallback(

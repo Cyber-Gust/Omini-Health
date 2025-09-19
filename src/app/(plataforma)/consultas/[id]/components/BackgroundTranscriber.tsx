@@ -3,8 +3,14 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Mic, MicOff } from 'lucide-react';
-import {startASR, stopASR, setTranscriptHandler, getTranscriptText, resetTranscriptText} from '@/lib/asr-adapter';
-import { pickEngine, type AsrEngine } from '@/lib/engine';
+import {
+  startASRWS as startASR,
+  stopASRWS as stopASR,
+  setTranscriptHandler,
+  getTranscriptText,
+  resetTranscriptText,
+  isSpeechSupported,
+} from '@/lib/ws-asr-adapter';
 import { useMicStream } from '@/lib/useMicStream';
 import VoiceVisualizer from './VoiceVisualizer';
 
@@ -31,8 +37,8 @@ function formatElapsed(ms: number): string {
 }
 
 // Hook simulado p/ flag
-function useUserAsrFlag(): { flag: AsrEngine; isLoading: boolean } {
-  return { flag: 'auto', isLoading: false };
+function useUserAsrFlag(): { isLoading: boolean } {
+  return { isLoading: false };
 }
 
 export default function BackgroundTranscriber({
@@ -41,7 +47,7 @@ export default function BackgroundTranscriber({
   onTranscriptUpdate,
   contextHint,
 }: BackgroundTranscriberProps) {
-  const { flag: userFlag, isLoading } = useUserAsrFlag();
+  const { isLoading } = useUserAsrFlag();
   const [isBlinking, setIsBlinking] = useState(false);
 
   // cronômetro
@@ -54,57 +60,45 @@ export default function BackgroundTranscriber({
 
   const [debugTranscript, setDebugTranscript] = useState<string>("");
 
-  // handler de transcrição
-  useEffect(() => {
-    setTranscriptHandler((text: string) => {
-      onTranscriptUpdate({ speaker: 'Transcrição', text });
-      setDebugTranscript(text); // <<< mostra na caixa 
-      setIsBlinking(true);
-      const t = window.setTimeout(() => setIsBlinking(false), 450);
-      void t;
-    });
-    return () => {};
-  }, [onTranscriptUpdate]);
-
   // controla ASR + cronômetro
   useEffect(() => {
-  if (isListening && ready && stream) {
-    // 🔹 novo ciclo: zera o acumulador do adapter
-    resetTranscriptText();                           // <-
+    if (isListening && ready && stream) {
+      resetTranscriptText();
 
-    // cronômetro (igual ao seu)
-    const now = Date.now();
-    startRef.current = now;
-    setElapsedMs(0);
-    if (tickRef.current) window.clearInterval(tickRef.current);
-    tickRef.current = window.setInterval(() => {
-      if (startRef.current) setElapsedMs(Date.now() - startRef.current);
-    }, 1000);
+      const now = Date.now();
+      startRef.current = now;
+      setElapsedMs(0);
+      if (tickRef.current) window.clearInterval(tickRef.current);
+      tickRef.current = window.setInterval(() => {
+        if (startRef.current) setElapsedMs(Date.now() - startRef.current);
+      }, 1000);
 
-    type EngineResolved = Exclude<AsrEngine, 'auto'>;
-    const engine = pickEngine(userFlag) as EngineResolved;
-    startASR(engine, contextHint, stream);
-  } else {
-    // 🔹 parou: encerra ASR
-    stopASR();
+      // 🔺 inicia ASR nativo do navegador (SpeechRecognition)
+      if (!isSpeechSupported()) {
+        console.error('SpeechRecognition não suportado neste navegador.');
+      } else {
+        startASR(); // parâmetros são ignorados pelo adapter nativo
+      }
+    } else {
+      stopASR();
 
-    // (opcional) se quiser já registrar o texto final aqui:
-    const full = getTranscriptText();
-    if (full) onTranscriptUpdate({ speaker: 'Transcrição', text: full });
+      const full = getTranscriptText();
+      if (full) onTranscriptUpdate({ speaker: 'Transcrição', text: full });
 
-    if (tickRef.current) {
-      window.clearInterval(tickRef.current);
-      tickRef.current = null;
+      if (tickRef.current) {
+        window.clearInterval(tickRef.current);
+        tickRef.current = null;
+      }
     }
-  }
-  return () => {
-    stopASR();
-    if (tickRef.current) {
-      window.clearInterval(tickRef.current);
-      tickRef.current = null;
-    }
-  };
-}, [isListening, ready, stream, userFlag, contextHint]);
+    return () => {
+      stopASR();
+      if (tickRef.current) {
+        window.clearInterval(tickRef.current);
+        tickRef.current = null;
+      }
+    };
+    // deps atualizados (removido ASR_SERVER_URL)
+  }, [isListening, ready, stream, onTranscriptUpdate]);
 
   return (
     <div className="p-4 sm:p-6 rounded-lg border border-border bg-white shadow-sm">

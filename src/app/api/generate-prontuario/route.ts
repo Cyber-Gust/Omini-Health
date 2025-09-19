@@ -1,5 +1,7 @@
 // app/api/generate-prontuario/route.ts
 import { NextResponse } from 'next/server';
+import { lightCleanTranscript } from '@/lib/transcript-post'; // [ADD]
+
 
 type GenConfig = {
   temperature?: number;
@@ -7,6 +9,7 @@ type GenConfig = {
   topK?: number;
   maxOutputTokens?: number;
   candidateCount?: number;
+  
 };
 
 const MODEL = process.env.GEMINI_MODEL_ID?.trim() || 'gemini-2.0-flash';
@@ -25,6 +28,14 @@ function sanitizeText(input: string | undefined | null, max = 8000): string {
   return t;
 }
 
+function sanitizeTranscriptStrict(input: string | undefined | null, max = 12000): string {
+  if (!input) return '';
+  // só remove null-char e padroniza CRLF -> \n; NÃO mexe em espaços ou múltiplas quebras
+  let t = String(input).replace(/\u0000/g, '').replace(/\r\n?/g, '\n');
+  if (t.length > max) t = t.slice(0, max); // sem “…”
+  return t;
+}
+
 function buildPrompt(payload: {
   transcript: string; physicalExam: string; vitals: string;
   patientHistory: string; labResults: string;
@@ -40,6 +51,7 @@ Você é um assistente clínico que redige PRONTUÁRIO em formato SOAP em portug
 - Não inclua cabeçalho/rodapé, assinaturas ou identificação de paciente/profissional.
 - Títulos das seções em MAIÚSCULAS: SUBJETIVO / OBJETIVO / AVALIAÇÃO / PLANO.
 - Se perceber inconsistências, aponte-as na AVALIAÇÃO com a linha "Inconsistências a revisar: ...".
+- Elabore com base no contexto do todo, pois algumas palavras da transcricao podem vir trocadas.
 
 🔎 REGRA ESPECÍFICA PARA O PLANO:
 - Se a transcrição não trouxer condutas explícitas do médico, **elabore um PLANO PROPOSTO** coerente com os achados dos <DADOS>, incluindo (quando aplicável):
@@ -181,18 +193,32 @@ export async function POST(request: Request) {
     if (!API_KEY) throw new Error('Chave da API do Gemini não configurada.');
 
     const body = await request.json().catch(() => ({}));
-    const transcript = sanitizeText(body?.transcript, 12000);       // permite transcrição grande
+    const transcript_raw = sanitizeTranscriptStrict(body?.transcript, 12000);   
+    const useClean = body?.useClean === true; // mande true do front quando quiser
+    const transcript_clean = useClean
+      ? lightCleanTranscript(transcript_raw, {
+          fixDecimals: true,
+          attachUnits: true,
+          conservativePunctuation: false, // mude p/ true se quiser pontuação leve
+        })
+      : transcript_raw; 
     const physicalExam = sanitizeText(body?.physicalExam, 6000);
     const vitals = sanitizeText(body?.vitals, 2000);
     const patientHistory = sanitizeText(body?.patientHistory, 4000);
     const labResults = sanitizeText(body?.labResults, 4000);
 
     // Prompt “blindado”
-    const prompt = buildPrompt({ transcript, physicalExam, vitals, patientHistory, labResults });
+    const prompt = buildPrompt({
+      transcript: transcript_clean,
+      physicalExam,
+      vitals,
+      patientHistory,
+      labResults,
+    });
 
     // Tempo limite opcional (10s)
     const ctrl = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), 10000);
+    const timeout = setTimeout(() => ctrl.abort(), 30000);
 
     const raw = await withRetries(
       () => callGemini(prompt, { temperature: 0.1, maxOutputTokens: 1200 }, ctrl.signal),
