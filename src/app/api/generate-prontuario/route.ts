@@ -12,7 +12,7 @@ type GenConfig = {
   
 };
 
-const MODEL = process.env.GEMINI_MODEL_ID?.trim() || 'gemini-2.5-flash';
+const MODEL = process.env.GEMINI_MODEL_ID?.trim() || 'gemini-2.0-flash';
 const API_KEY = process.env.GEMINI_API_KEY;
 
 // -------- utils

@@ -6,7 +6,7 @@ export async function POST(request: Request) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('Chave da API do Gemini não configurada.');
 
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
     const prompt = `
 Você é um assistente clínico que elabora pedidos de exames em português do Brasil, com linguagem técnica e objetiva.

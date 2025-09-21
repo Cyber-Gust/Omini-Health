@@ -8,7 +8,7 @@ export async function POST(request: Request) {
     if (!apiKey) throw new Error('Chave da API do Gemini não configurada.');
 
     const apiUrl =
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
     // ---------- PROMPT SUPER ESTRITO DE FORMATAÇÃO ----------
     // Gera exatamente o bloco abaixo, sem markdown, sem cabeçalho extra, sem nomes/CRM/data.
