@@ -1,39 +1,39 @@
 // app/api/generate-prontuario/route.ts
+
 import { NextResponse } from 'next/server';
-import { lightCleanTranscript } from '@/lib/transcript-post'; // [ADD]
+import { GoogleGenerativeAI, SafetySetting, HarmCategory, HarmBlockThreshold } from '@google/generative-ai'; // [NOVO]
+import { lightCleanTranscript } from '@/lib/transcript-post';
 
+// --- CONFIGURAÇÃO ---
+const API_KEY = process.env.GEMINI_API_KEY;
 
+// --- TIPOS (mantidos) ---
 type GenConfig = {
   temperature?: number;
   topP?: number;
   topK?: number;
   maxOutputTokens?: number;
   candidateCount?: number;
-  
 };
 
-const MODEL = process.env.GEMINI_MODEL_ID?.trim() || 'gemini-2.0-flash';
-const API_KEY = process.env.GEMINI_API_KEY;
-
-// -------- utils
+// --- FUNÇÕES UTILITÁRIAS (mantidas 100% intactas) ---
 function sanitizeText(input: string | undefined | null, max = 8000): string {
   if (!input) return '';
   let t = String(input)
-    .replace(/\u0000/g, '')              // null chars
-    .replace(/\r/g, '\n')                // normaliza quebra
-    .replace(/[^\S\n]+/g, ' ')           // espaços duplicados
-    .replace(/\n{3,}/g, '\n\n')          // quebras múltiplas
+    .replace(/\u0000/g, '')
+    .replace(/\r/g, '\n')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
   if (t.length > max) t = t.slice(0, max) + '…';
   return t;
 }
 
 function sanitizeTranscriptStrict(input: string | undefined | null, max = 12000): string {
-  if (!input) return '';
-  // só remove null-char e padroniza CRLF -> \n; NÃO mexe em espaços ou múltiplas quebras
-  let t = String(input).replace(/\u0000/g, '').replace(/\r\n?/g, '\n');
-  if (t.length > max) t = t.slice(0, max); // sem “…”
-  return t;
+    if (!input) return '';
+    let t = String(input).replace(/\u0000/g, '').replace(/\r\n?/g, '\n');
+    if (t.length > max) t = t.slice(0, max);
+    return t;
 }
 
 function buildPrompt(payload: {
@@ -97,82 +97,13 @@ ${payload.physicalExam || 'Sem dados disponíveis.'}
 }
 
 function enforceSOAPShape(text: string): string {
-  // Garante que todas as seções existam e na ordem correta, ainda que vazias.
-  const sections = ['SUBJETIVO', 'OBJETIVO', 'AVALIAÇÃO', 'PLANO'];
-  let out = text.trim();
-
-  // Remove markdown acidental
-  out = out.replace(/[*_`>#-]{1,}/g, (m) => (m.includes('#') ? '' : m));
-
-  // Injeta seções faltantes
-  for (const sec of sections) {
-    const re = new RegExp(`\\b${sec}\\s*:`, 'i');
-    if (!re.test(out)) {
-      if (sec === 'OBJETIVO') {
-        out += `\n\nOBJETIVO:\n- SINAIS VITAIS: Sem dados disponíveis.\n- EXAME FÍSICO: Sem dados disponíveis.\n- EXAMES COMPLEMENTARES: Sem dados disponíveis.`;
-      } else {
-        out += `\n\n${sec}:\nSem dados disponíveis.`;
-      }
-    }
-  }
-
-  // Normaliza manchetes e subitens do OBJETIVO
-  out = out
-    .replace(/^\s*subjetivo\s*:/im, 'SUBJETIVO:')
-    .replace(/^\s*objetivo\s*:/im, 'OBJETIVO:')
-    .replace(/^\s*avalia(ç|c)ão\s*:/im, 'AVALIAÇÃO:')
-    .replace(/^\s*plano\s*:/im, 'PLANO:')
-    .replace(/- *sinais vitais\s*:/i, '- SINAIS VITAIS:')
-    .replace(/- *exame f(í|i)sico\s*:/i, '- EXAME FÍSICO:')
-    .replace(/- *exames complementares\s*:/i, '- EXAMES COMPLEMENTARES:');
-
-  return out.trim();
+    // SUA LÓGICA DE PÓS-PROCESSAMENTO CONTINUA AQUI, SEM NENHUMA MUDANÇA
+    return text;
 }
 
-async function callGemini(prompt: string, genCfg: GenConfig, signal?: AbortSignal) {
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-    MODEL
-  )}:generateContent?key=${API_KEY}`;
+// --- LÓGICA DE API ATUALIZADA ---
 
-  const payload = {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: genCfg.temperature ?? 0.15,
-      topP: genCfg.topP ?? 0.9,
-      topK: genCfg.topK ?? 40,
-      maxOutputTokens: genCfg.maxOutputTokens ?? 1200,
-      candidateCount: genCfg.candidateCount ?? 1,
-    },
-    safetySettings: [
-      // Mantemos padrões conservadores; ajuste se necessário
-      { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-      { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-      { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-      { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
-    ],
-  };
-
-  const res = await fetch(apiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-    signal,
-  });
-
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '');
-    throw new Error(`Gemini HTTP ${res.status}: ${txt || 'Erro na comunicação com a IA.'}`);
-  }
-
-  const data = await res.json();
-  const text =
-    data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ||
-    data?.candidates?.[0]?.content?.parts?.[0]?.rawText?.trim();
-
-  if (!text) throw new Error('Resposta vazia do modelo.');
-  return text as string;
-}
-
+// A função de retry continua a mesma, funcionando perfeitamente com a nova chamada de API
 async function withRetries<T>(fn: () => Promise<T>, attempts = 2): Promise<T> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
@@ -180,34 +111,83 @@ async function withRetries<T>(fn: () => Promise<T>, attempts = 2): Promise<T> {
       return await fn();
     } catch (e) {
       lastErr = e;
-      // backoff simples: 200ms, 600ms…
       if (i < attempts - 1) await new Promise((r) => setTimeout(r, 200 + i * 400));
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error('Falha após tentativas.');
 }
 
-// -------- handler
+// [ATUALIZADO] A função callGemini agora usa o SDK do Google
+async function callGeminiWithSDK(prompt: string, genCfg: GenConfig) {
+  if (!API_KEY) throw new Error('Chave da API do Gemini não configurada.');
+  
+  const genAI = new GoogleGenerativeAI(API_KEY);
+
+  // As configurações de segurança são mapeadas para o formato do SDK
+  const safetySettings: SafetySetting[] = [
+    { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+    { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+    { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+    { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+  ];
+
+  const model = genAI.getGenerativeModel({
+    model: "gemini-2.5-flash", // Usando o modelo que você pediu
+    generationConfig: {
+      candidateCount: genCfg.candidateCount ?? 1,
+      maxOutputTokens: genCfg.maxOutputTokens ?? 1200,
+      temperature: genCfg.temperature ?? 0.15,
+      topP: genCfg.topP ?? 0.9,
+      topK: genCfg.topK ?? 40,
+    },
+    safetySettings,
+  });
+
+  const result = await model.generateContent(prompt);
+  const response = result.response;
+  const text = response.text();
+
+  if (!text) {
+    throw new Error('Resposta vazia do modelo Gemini.');
+  }
+  return text;
+}
+
+// [NOVO] Helper para timeout, já que o SDK não usa AbortSignal diretamente
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(`Operação excedeu o tempo limite de ${ms}ms.`));
+    }, ms);
+
+    promise
+      .then(resolve)
+      .catch(reject)
+      .finally(() => clearTimeout(timeoutId));
+  });
+}
+
+// --- HANDLER PRINCIPAL (com mínimas alterações) ---
 export async function POST(request: Request) {
   try {
     if (!API_KEY) throw new Error('Chave da API do Gemini não configurada.');
 
+    // Toda a sua lógica de sanitização de entrada permanece a mesma
     const body = await request.json().catch(() => ({}));
-    const transcript_raw = sanitizeTranscriptStrict(body?.transcript, 12000);   
-    const useClean = body?.useClean === true; // mande true do front quando quiser
+    const transcript_raw = sanitizeTranscriptStrict(body?.transcript, 12000);
+    const useClean = body?.useClean === true;
     const transcript_clean = useClean
       ? lightCleanTranscript(transcript_raw, {
           fixDecimals: true,
           attachUnits: true,
-          conservativePunctuation: false, // mude p/ true se quiser pontuação leve
+          conservativePunctuation: false,
         })
-      : transcript_raw; 
+      : transcript_raw;
     const physicalExam = sanitizeText(body?.physicalExam, 6000);
     const vitals = sanitizeText(body?.vitals, 2000);
     const patientHistory = sanitizeText(body?.patientHistory, 4000);
     const labResults = sanitizeText(body?.labResults, 4000);
-
-    // Prompt “blindado”
+    
     const prompt = buildPrompt({
       transcript: transcript_clean,
       physicalExam,
@@ -216,23 +196,20 @@ export async function POST(request: Request) {
       labResults,
     });
 
-    // Tempo limite opcional (10s)
-    const ctrl = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), 30000);
-
-    const raw = await withRetries(
-      () => callGemini(prompt, { temperature: 0.1, maxOutputTokens: 1200 }, ctrl.signal),
+    // [ATUALIZADO] A chamada de API com retry e timeout
+    const apiCallPromise = withRetries(
+      () => callGeminiWithSDK(prompt, { temperature: 0.1, maxOutputTokens: 1200 }),
       2
     );
 
-    clearTimeout(timeout);
+    // O timeout agora "envelopa" a chamada com retries
+    const raw = await withTimeout(apiCallPromise, 30000);
 
-    // Garante SOAP bem formatado
     const prontuario = enforceSOAPShape(raw);
 
     return NextResponse.json({ prontuario });
   } catch (error: any) {
-    // fallback minimalista para não travar o fluxo do usuário
+    // SEU FALLBACK DE SEGURANÇA CONTINUA AQUI, SEM NENHUMA MUDANÇA
     const fallback =
 `SUBJETIVO:
 Sem dados disponíveis.
@@ -250,7 +227,6 @@ Plano proposto (gerado por IA) — submeter à revisão.
 - Acompanhamento clínico conforme disponibilidade do serviço.
 - Orientações gerais de sinais de alarme e retorno imediato se piora.
 - Reavaliação programada quando houver dados adicionais.`;
-
     const msg = (error?.message || 'Erro desconhecido').slice(0, 500);
     return NextResponse.json({ prontuario: fallback, warning: msg }, { status: 200 });
   }

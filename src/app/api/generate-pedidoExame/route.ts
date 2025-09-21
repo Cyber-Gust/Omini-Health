@@ -1,13 +1,17 @@
+// app/api/generate-pedido-exame/route.ts
+
 import { NextResponse } from 'next/server';
+import { GoogleGenerativeAI } from '@google/generative-ai'; // [NOVO]
 
 export async function POST(request: Request) {
   try {
     const { transcript, physicalExam, vitals, patientHistory, labResults } = await request.json();
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error('Chave da API do Gemini não configurada.');
+    if (!apiKey) {
+      throw new Error('Chave da API do Gemini não configurada.');
+    }
 
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-
+    // O seu prompt detalhado e bem estruturado permanece o mesmo.
     const prompt = `
 Você é um assistente clínico que elabora pedidos de exames em português do Brasil, com linguagem técnica e objetiva.
 
@@ -44,25 +48,25 @@ DADOS DA CONSULTA (fontes):
 — EXAME FÍSICO: ${physicalExam || 'Não fornecido.'}
     `.trim();
 
-    const payload = {
-      contents: [{ parts: [{ text: prompt }] }],
+    // [ATUALIZADO] Lógica de chamada à API usando o SDK
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.5-flash", // Usando o modelo que você pediu
       generationConfig: { temperature: 0.3 },
-    };
-
-    const apiResponse = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
     });
 
-    if (!apiResponse.ok) throw new Error('Erro na comunicação com a IA.');
-    const data = await apiResponse.json();
-    const pedidoExame = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-
-    if (!pedidoExame) throw new Error('A resposta da IA estava vazia.');
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const pedidoExame = response.text().trim();
+    
+    if (!pedidoExame) {
+      throw new Error('A resposta da IA estava vazia.');
+    }
 
     return NextResponse.json({ pedidoExame });
   } catch (error: any) {
+    // A sua gestão de erro original é mantida
+    console.error("Erro na rota de pedido de exame:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

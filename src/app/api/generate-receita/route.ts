@@ -1,17 +1,48 @@
-import { NextResponse } from 'next/server';
+// app/api/sua-rota/route.ts
 
+import { NextResponse } from 'next/server';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+// A sua função de sanitização permanece exatamente a mesma.
+// Coloquei ela aqui para o exemplo ficar completo.
+function sanitizeRecipe(text: string): string {
+  let out = text;
+  out = out
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/^#+\s*/gm, '')
+    .replace(/^\s*[-*]\s+/gm, '')
+    .replace(/\*\*/g, '')
+    .replace(/__|~~/g, '');
+  out = out
+    .replace(/\r/g, '')
+    .replace(/[“”]/g, '"')
+    .replace(/[’]/g, "'")
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n');
+  out = out.trimStart();
+  if (!out.startsWith('Receita')) {
+    out = 'Receita\n\n' + out;
+  }
+  out = out.replace(/\n\s*Uso\s+([^\n:]+)\s*:\s*/i, '\nUso $1:\n');
+  out = out.replace(
+    /^(\d+\.\s.*?)(?:\s*[-–—]{3,}\s*|\s{2,})(\d+\s*(?:caixa|caixas|frasco|frascos|ampola|ampolas|unidade|unidades))\s*$/gmi,
+    (_m, a, b) => `${a} ------------------------------------------------${b}`
+  );
+  return out.trim();
+}
+
+
+// --- Handler da Rota API ---
 export async function POST(request: Request) {
   try {
     const { transcript, physicalExam, patientHistory } = await request.json();
 
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error('Chave da API do Gemini não configurada.');
+    if (!apiKey) {
+      throw new Error('Chave da API do Gemini não configurada.');
+    }
 
-    const apiUrl =
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-
-    // ---------- PROMPT SUPER ESTRITO DE FORMATAÇÃO ----------
-    // Gera exatamente o bloco abaixo, sem markdown, sem cabeçalho extra, sem nomes/CRM/data.
+    // O seu prompt detalhado e excelente permanece o mesmo.
     const prompt = `
 Você é um assistente clínico que gera a RECEITA MÉDICA em português (Brasil) COM FORMATAÇÃO FIXA.
 Produza APENAS o TEXTO da receita. Não use Markdown, asteriscos, bullets, numeração automática do Word, ou códigos.
@@ -49,86 +80,43 @@ ${transcript || 'Não fornecida.'}
 ${physicalExam || 'Não fornecido.'}
 `.trim();
 
-    const payload = {
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.15,
-        topP: 0.9,
-        maxOutputTokens: 800,
-        // força o modelo a não usar markdown
-        // (Gemini respeita bem com instrução no prompt, mas mantemos temperatura baixa)
-      },
+    // As configurações de geração também são mantidas.
+    const generationConfig = {
+      temperature: 0.15,
+      topP: 0.9,
+      maxOutputTokens: 800,
     };
 
-    const apiResponse = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+    // ---------- NOVA ABORDAGEM COM O SDK ----------
+    // 1. Inicialize o cliente da API
+    const genAI = new GoogleGenerativeAI(apiKey);
+
+    // 2. Obtenha o modelo, passando a configuração diretamente
+    // Recomendo usar o gemini-1.5-pro por sua maior capacidade de seguir instruções complexas.
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.5-flash",
+      generationConfig,
     });
-
-    if (!apiResponse.ok) throw new Error('Erro na comunicação com a IA.');
-    const data = await apiResponse.json();
-
-    let receita: string =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
-
+    
+    // 3. Gere o conteúdo de forma simples e direta
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    let receita = response.text();
+    // ----------------------------------------------
+    
     if (!receita || typeof receita !== 'string') {
       throw new Error('A resposta da IA estava vazia.');
     }
 
-    // ---------- PÓS-PROCESSAMENTO DEFENSIVO (remove markdown/lixo visual) ----------
+    // O seu pós-processamento defensivo continua sendo uma ótima ideia!
     receita = sanitizeRecipe(receita);
-
-    // Se mesmo assim veio vazio ou com o cabeçalho errado, retorna mensagem segura
     if (!/^Receita\s*$/m.test(receita.split('\n')[0]?.trim() || '')) {
       receita = 'Receita\n\nSem dados suficientes para prescrição segura.';
     }
 
     return NextResponse.json({ receita: receita.trim() });
   } catch (error: any) {
+    console.error("Erro na rota da API:", error); // Log do erro no servidor
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-}
-
-/**
- * Remove markdown acidental, normaliza espaços/traços e garante quebra de linhas estável.
- */
-function sanitizeRecipe(text: string): string {
-  let out = text;
-
-  // tira possíveis cercas de código, asteriscos, bullets, títulos markdown
-  out = out
-    .replace(/```[\s\S]*?```/g, '')        // blocos de código
-    .replace(/^#+\s*/gm, '')               // # títulos
-    .replace(/^\s*[-*]\s+/gm, '')          // bullets
-    .replace(/\*\*/g, '')                  // negrito markdown
-    .replace(/__|~~/g, '');
-
-  // normaliza aspas e espaços
-  out = out
-    .replace(/\r/g, '')
-    .replace(/[“”]/g, '"')
-    .replace(/[’]/g, "'")
-    .replace(/[ \t]+\n/g, '\n')            // espaços à direita
-    .replace(/\n{3,}/g, '\n\n');           // muitas linhas vazias
-
-  // garante que o cabeçalho "Receita" fique sozinho na primeira linha
-  out = out.trimStart();
-  if (!out.startsWith('Receita')) {
-    // se o modelo devolveu só o corpo, injeta o cabeçalho
-    out = 'Receita\n\n' + out;
-  }
-
-  // reforça “Uso …:” em linha própria (se o modelo grudou)
-  out = out.replace(/\n\s*Uso\s+([^\n:]+)\s*:\s*/i, '\nUso $1:\n');
-
-  // normaliza a linha pontilhada entre item e quantidade (— longo ou hífen)
-  out = out.replace(
-    /^(\d+\.\s.*?)(?:\s*[-–—]{3,}\s*|\s{2,})(\d+\s*(?:caixa|caixas|frasco|frascos|ampola|ampolas|unidade|unidades))\s*$/gmi,
-    (_m, a, b) => `${a} ------------------------------------------------${b}`
-  );
-
-  // se item vier sem a quantidade no fim, não forçamos — fica como veio.
-
-  return out.trim();
 }
