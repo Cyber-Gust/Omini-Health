@@ -8,11 +8,11 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   manifest: "/manifest.json",
   title: {
-    template: '%s | Orquestra',
-    default: 'Orquestra',
+    template: '%s | Omni Health',
+    default: 'Omni Health',
   },
-  description: "Orquestra é uma plataforma inteligente que transcreve, analisa e otimiza as suas consultas médicas, devolvendo o seu tempo para o que realmente importa: o paciente.",
-  keywords: ['prontuário eletrônico', 'IA para médicos', 'transcrição médica', 'software médico', 'Orquestra'],
+  description: "Omni é uma plataforma inteligente que transcreve, analisa e otimiza as suas consultas médicas, devolvendo o seu tempo para o que realmente importa: o paciente.",
+  keywords: ['prontuário eletrônico', 'IA para médicos', 'transcrição médica', 'software médico', 'Omni'],
   icons: {
     icon: '/favicon.ico',
     shortcut: '/icon-192x192.png',

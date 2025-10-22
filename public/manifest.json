@@ -1,6 +1,6 @@
 {
-    "name": "Orquestra",
-    "short_name": "Orquestra",
+    "name": "Omni Health",
+    "short_name": "Omni",
     "description": "A IA para a sua consulta médica.",
     "start_url": "/",
     "display": "standalone",
