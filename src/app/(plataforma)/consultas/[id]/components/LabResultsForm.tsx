@@ -3,7 +3,6 @@
 import { useState, useMemo } from 'react';
 import { Beaker, Search, Plus, X } from 'lucide-react';
 import examDatabase from '@/lib/lab_exams.json';
-import PdfUploadAndOcr from '@/app/(plataforma)/consultas/[id]/components/PdfUploadAndOcr';
 
 type ExamResult = { name: string; value: string };
 
@@ -52,23 +51,6 @@ export default function LabResultsForm({ results, onResultsChange, isFinalized }
       </div>
       {!isFinalized && (
         <>
-          {/* ========================================================= */}
-          {/* NOVO BLOCO: UPLOAD E OCR */}
-          {/* O componente PdfUploadAndOcr chamará onResultsChange com os dados extraídos. */}
-          {/* ========================================================= */}
-          <div className="mb-6">
-            <PdfUploadAndOcr 
-              onResultsFound={(newResults) => {
-                // Adiciona os resultados extraídos pelo OCR à lista existente
-                onResultsChange([...results, ...newResults]);
-              }}
-            />
-          </div>
-          
-          {/* ========================================================= */}
-          {/* BLOCO EXISTENTE: ADIÇÃO MANUAL */}
-          {/* Sua lógica original para adicionar manualmente permanece abaixo. */}
-          {/* ========================================================= */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
             <div className="md:col-span-2 relative">
               <label className="block text-sm font-medium text-muted mb-1">Nome do Exame</label>

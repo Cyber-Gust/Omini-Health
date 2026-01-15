@@ -11,8 +11,10 @@ const nextConfig = {
   },
 
   webpack: (config, { isServer }) => {
-    // ❗ só no servidor: não deixe o SSR tocar no onnxruntime-node
+    // ❗ CONFIGURAÇÕES SÓ PARA O LADO DO SERVIDOR (isServer = true)
     if (isServer) {
+      
+      // 1. RESOLVE ALIAS & IGNORE PLUGIN (MANTIDO PARA ONNX/TRANSFORMERS)
       config.resolve.alias = {
         ...(config.resolve.alias || {}),
         'onnxruntime-node': false,
@@ -23,20 +25,22 @@ const nextConfig = {
         new webpack.IgnorePlugin({ resourceRegExp: /onnxruntime-node/ })
       );
 
+      // 2. EXTERNALS (Módulos que não devem ser empacotados pelo Webpack)
+      //    Adicionar 'tesseract.js' aqui é crucial para evitar o erro de 'worker-script'.
       config.externals = [
         ...(config.externals || []),
         'onnxruntime-node',
+        // *** CORREÇÃO TESSERACT.JS: Trata a biblioteca como um módulo Node.js padrão ***
+        'tesseract.js',
       ];
     }
 
     return config;
   },
 
-  // 👉 Para o caminho "mais simples", REMOVA COOP/COEP.
-  // Se você mantiver COEP:require-corp, terá que hospedar os modelos/wasm localmente
-  // e servir com CORP, ou habilitar CORS nos terceiros. Então vamos tirar:
+  // CORS/COOP Headers (MANTIDO: Sem COOP/COEP por enquanto)
   async headers() {
-    return []; // sem COOP/COEP por enquanto
+    return [];
   },
 };
 
