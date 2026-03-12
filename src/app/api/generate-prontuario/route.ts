@@ -12,7 +12,7 @@ type GenConfig = {
   
 };
 
-const MODEL = process.env.GEMINI_MODEL_ID?.trim() || 'gemini-2.0-flash';
+const MODEL = process.env.GEMINI_MODEL_ID?.trim() || 'gemini-2.5-flash';
 const API_KEY = process.env.GEMINI_API_KEY;
 
 // -------- utils
@@ -35,6 +35,7 @@ function sanitizeTranscriptStrict(input: string | undefined | null, max = 12000)
   if (t.length > max) t = t.slice(0, max); // sem “…”
   return t;
 }
+
 
 function buildPrompt(payload: {
   transcript: string; physicalExam: string; vitals: string;
@@ -61,6 +62,14 @@ Você é um assistente clínico que redige PRONTUÁRIO em formato SOAP em portug
   • necessidade de acompanhamento/encaminhamento.
 - Não prescreva fármacos específicos fora dos dados; se medicação não constar em <DADOS>, descreva medidas e encaminhamentos de forma genérica (ex.: "analgesia conforme protocolo da unidade", "hidratação oral", "encaminhamento para avaliação especializada").
 - Se os dados forem insuficientes para qualquer proposta concreta, escreva uma proposta mínima: acompanhamento, reavaliação e sinais de alarme.
+
+- No SUBJETIVO, organize a anamnese em: queixa principal, início, duração, localização, intensidade, fatores associados, agravantes/atenuantes, antecedentes relevantes, quando disponíveis.
+
+- Na AVALIAÇÃO, apresente hipótese diagnóstica principal, diagnósticos diferenciais, estratificação de gravidade e limitações dos dados, quando aplicável.
+
+- No PLANO, inclua prazos, critérios de retorno e prioridades assistenciais sempre que possível.
+
+- Verifique coerência entre todas as seções. Em caso de conflito, registre em AVALIAÇÃO.
 
 FORMATO EXATO (SEM TEXTO ANTES OU DEPOIS):
 SUBJETIVO:
@@ -129,6 +138,53 @@ function enforceSOAPShape(text: string): string {
   return out.trim();
 }
 
+async function callOpenRouter(prompt: string, signal?: AbortSignal) {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    throw new Error('OpenRouter API Key não configurada');
+  }
+
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.APP_URL || 'http://localhost:3000',
+      'X-Title': process.env.OPENROUTER_APP_NAME || 'OmniHealth',
+    },
+    body: JSON.stringify({
+      model: 'arcee-ai/trinity-large-preview:free',
+      messages: [
+        {
+          role: 'system',
+          content: 'Você é um assistente clínico especialista em prontuários médicos em português do Brasil.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      temperature: 0.15,
+      max_tokens: 3000,
+    }),
+    signal,
+  });
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    console.error('🔥 OpenRouter Error:', txt);
+    throw new Error(`OpenRouter HTTP ${res.status}`);
+  }
+
+  const data = await res.json();
+
+  const text = data?.choices?.[0]?.message?.content?.trim();
+  if (!text) {
+    throw new Error('Resposta vazia do OpenRouter');
+  }
+  return text;
+}
+
 async function callGemini(prompt: string, genCfg: GenConfig, signal?: AbortSignal) {
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
     MODEL
@@ -140,7 +196,7 @@ async function callGemini(prompt: string, genCfg: GenConfig, signal?: AbortSigna
       temperature: genCfg.temperature ?? 0.15,
       topP: genCfg.topP ?? 0.9,
       topK: genCfg.topK ?? 40,
-      maxOutputTokens: genCfg.maxOutputTokens ?? 1200,
+      maxOutputTokens: genCfg.maxOutputTokens ?? 2500,
       candidateCount: genCfg.candidateCount ?? 1,
     },
     safetySettings: [
@@ -151,6 +207,13 @@ async function callGemini(prompt: string, genCfg: GenConfig, signal?: AbortSigna
       { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
     ],
   };
+
+  const label = `🤖 Gemini-${Date.now()}`;
+  console.time(label);
+  console.log('📤 GEMINI PAYLOAD', {
+    model: MODEL,
+    promptSize: prompt.length,
+  });
 
   const res = await fetch(apiUrl, {
     method: 'POST',
@@ -165,6 +228,12 @@ async function callGemini(prompt: string, genCfg: GenConfig, signal?: AbortSigna
   }
 
   const data = await res.json();
+  console.timeEnd(label);
+
+  console.log('📩 GEMINI RESPONSE', {
+    candidates: data?.candidates?.length,
+    hasText: !!data?.candidates?.[0]?.content?.parts?.[0]?.text,
+  });
   const text =
     data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ||
     data?.candidates?.[0]?.content?.parts?.[0]?.rawText?.trim();
@@ -190,10 +259,13 @@ async function withRetries<T>(fn: () => Promise<T>, attempts = 2): Promise<T> {
 // -------- handler
 export async function POST(request: Request) {
   try {
-    if (!API_KEY) throw new Error('Chave da API do Gemini não configurada.');
-
+    // if (!API_KEY) throw new Error('Chave da API do Gemini não configurada.');
+    if (!process.env.OPENROUTER_API_KEY && !API_KEY) {
+      throw new Error('Nenhuma API de IA configurada');
+    }
     const body = await request.json().catch(() => ({}));
     const transcript_raw = sanitizeTranscriptStrict(body?.transcript, 12000);   
+    
     const useClean = body?.useClean === true; // mande true do front quando quiser
     const transcript_clean = useClean
       ? lightCleanTranscript(transcript_raw, {
@@ -202,10 +274,25 @@ export async function POST(request: Request) {
           conservativePunctuation: false, // mude p/ true se quiser pontuação leve
         })
       : transcript_raw; 
+    
+    // 🔍 DEBUG API — entrada
+    console.log('📥 API RECEBEU', {
+      rawLength: body?.transcript?.length ?? 0,
+      cleanLength: transcript_clean.length,
+      preview: transcript_clean.slice(0, 200),
+    });  
     const physicalExam = sanitizeText(body?.physicalExam, 6000);
     const vitals = sanitizeText(body?.vitals, 2000);
     const patientHistory = sanitizeText(body?.patientHistory, 4000);
     const labResults = sanitizeText(body?.labResults, 4000);
+
+    console.log('📥 GEN-PRONTUARIO DEBUG', {
+      transcriptLength: transcript_clean.length,
+      transcriptPreview: transcript_clean.slice(0, 200),
+      vitalsLength: vitals.length,
+      physicalExamLength: physicalExam.length,
+      model: MODEL,
+    });
 
     // Prompt “blindado”
     const prompt = buildPrompt({
@@ -218,20 +305,26 @@ export async function POST(request: Request) {
 
     // Tempo limite opcional (10s)
     const ctrl = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), 30000);
+    //const timeout = setTimeout(() => ctrl.abort(), 60000);
 
     const raw = await withRetries(
-      () => callGemini(prompt, { temperature: 0.1, maxOutputTokens: 1200 }, ctrl.signal),
+      () => callOpenRouter(prompt, ctrl.signal),
       2
     );
 
-    clearTimeout(timeout);
+   //  const raw = await withRetries(
+   //   () => callGemini(prompt, { temperature: 0.1, maxOutputTokens: 1200 }, ctrl.signal),
+   //   2
+   // );
+
+    //clearTimeout(timeout);
 
     // Garante SOAP bem formatado
     const prontuario = enforceSOAPShape(raw);
 
     return NextResponse.json({ prontuario });
   } catch (error: any) {
+    console.error('🔥 GEN-PRONTUARIO ERROR', error);
     // fallback minimalista para não travar o fluxo do usuário
     const fallback =
 `SUBJETIVO:
@@ -252,6 +345,9 @@ Plano proposto (gerado por IA) — submeter à revisão.
 - Reavaliação programada quando houver dados adicionais.`;
 
     const msg = (error?.message || 'Erro desconhecido').slice(0, 500);
-    return NextResponse.json({ prontuario: fallback, warning: msg }, { status: 200 });
+    return NextResponse.json(
+      { prontuario: fallback, warning: msg },
+      { status: 500 }
+    );
   }
 }

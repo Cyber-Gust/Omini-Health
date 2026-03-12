@@ -197,6 +197,17 @@ export default function ConsultationDetailPage() {
     const { fullTranscriptText, examText, vitalsText, patientHistoryText, labResultsText } = baseGenerationData;
 
     try {
+
+      // 🔍 DEBUG FRONT — antes de enviar pra API
+      const rawTranscript = getTranscriptText();
+
+      console.log('🎙️ FRONT → API', {
+        length: rawTranscript?.length ?? 0,
+        preview: rawTranscript?.slice(0, 200),
+        examSize: examText.length,
+        vitalsSize: vitalsText.length,
+      });
+
       const response = await fetch(`/api/generate-${docType}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -360,7 +371,16 @@ export default function ConsultationDetailPage() {
 
               <BackgroundTranscriber
                 isListening={isListening}
-                onToggleListening={() => setIsListening((v) => !v)}
+                onToggleListening={() => {
+                  setIsListening((v) => {
+                    if (!v) {
+                      // Vai começar a gravar → zera buffer
+                      resetTranscriptText();
+                      console.log('🧹 Transcript resetado');
+                    }
+                    return !v;
+                  });
+                }}
                 onTranscriptUpdate={handleTranscriptUpdate}
               />
 
